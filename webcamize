@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Created by weebney in 2023
+# Created by cowtoolz in 2023
 # Licensed BSD-2-Clause
 
 version="1.2.0"
@@ -152,7 +152,7 @@ fi
 # Verify that the loopback device exists
 if [ ! -e /dev/video"${device_number}" ]; then
 	warn "Could not find /dev/video%s" "${device_number}"
-	
+
 	# Unload v4l2loopback so we can add new devices
 	if lsmod | grep -q "v4l2loopback"; then
 		warn "Reloading v4l2loopback; this will disable in-use camera feeds"
@@ -162,7 +162,7 @@ if [ ! -e /dev/video"${device_number}" ]; then
 	fi
 
 	info "Attempting to add /dev/video%s via modprobe" "${device_number}"
-	
+
 	# Add the required device
 	if ! sudo modprobe v4l2loopback video_nr="${device_number}" card_label="${camera_name} (webcamize)" exclusive_caps=1; then
 		fatal "Error loading v4l2loopback module"

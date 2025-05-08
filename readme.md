@@ -15,8 +15,8 @@
 </strong> -->
 
 <img alt="Awesomeness badge" src="https://img.shields.io/badge/video-lots-orchid?style=flat-square">
-<img alt="License" src="https://img.shields.io/github/license/weebney/webcamize?style=flat-square">
-<img alt="GitHub top language" src="https://img.shields.io/github/languages/top/weebney/webcamize?style=flat-square">
+<img alt="License" src="https://img.shields.io/github/license/cowtoolz/webcamize?style=flat-square">
+<img alt="GitHub top language" src="https://img.shields.io/github/languages/top/cowtoolz/webcamize?style=flat-square">
 
 <img alt="Awesomeness badge" src="https://img.shields.io/badge/awesome-extremely-limegreen?style=flat-square">
 
@@ -43,7 +43,7 @@ There's literally only two steps...
 Now your camera is a webcam! 🎉
 </div>
 
-It's really that easy! Webcamize is a tiny bash script that coordinates [gphoto2](http://gphoto.org/) and [ffmpeg](https://www.ffmpeg.org/) to capture video from any camera and output it to a live video device, ready to be used as a webcam. Whether it's for a Zoom meeting, a live streaming event, or a virtual conference, webcamize bridges the gap between high-end photography equipment and everyday tech usability. 
+It's really that easy! Webcamize is a tiny bash script that coordinates [gphoto2](http://gphoto.org/) and [ffmpeg](https://www.ffmpeg.org/) to capture video from any camera and output it to a live video device, ready to be used as a webcam. Whether it's for a Zoom meeting, a live streaming event, or a virtual conference, webcamize bridges the gap between high-end photography equipment and everyday tech usability.
 
 <!-- -->
 
@@ -90,7 +90,7 @@ If you have multiple gphoto2 compatible cameras that are connected and available
 ```console
 $ gphoto2 --summary | grep Model:
 Model: Canon EOS 80D
-Model: Sony Alpha-A7r III 
+Model: Sony Alpha-A7r III
 ```
 
 Once you know the name of the camera you want to use, just pass it to the `--camera` flag:
@@ -205,7 +205,7 @@ These should be available from your package manager.
 **1. To get started, clone this repo somewhere**
 
 ```console
-$ git clone https://github.com/weebney/webcamize && cd webcamize
+$ git clone https://github.com/cowtoolz/webcamize && cd webcamize
 ```
 
 **2. Link the script somewhere on your path**
@@ -256,7 +256,7 @@ This project follows the following philosophy:
 - If the documentation is confusing, then the documentation is buggy
 - If there is a bug in this project, then we can work together to fix it.
 
-If you get stumped, find a bug, have a bad time, or have a suggestion, please open an issue in the [issue tracker](https://github.com/weebney/webcamize/issues/)—noobs welcome!
+If you get stumped, find a bug, have a bad time, or have a suggestion, please open an issue in the [issue tracker](https://github.com/cowtoolz/webcamize/issues/)—noobs welcome!
 
 ### Contributing
 
@@ -284,6 +284,6 @@ This is just a little script I cooked up one afternoon—the software it depends
 
 <br>
 
-![](https://starchart.cc/weebney/webcamize.svg)
+![](https://starchart.cc/cowtoolz/webcamize.svg)
 
 ![](././assets/nightynight.svg)

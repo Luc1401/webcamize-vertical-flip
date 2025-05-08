@@ -4,6 +4,6 @@ This project follows a unique philosophy centered around user experience: if the
 
 If you come across any issues, face any problems, or have suggestions for improvement, please do not hesitate to open an issue in our issue tracker. We welcome everyone, including beginners, to contribute to the project.
 
-**Read more on [the readme](https://github.com/weebney/webcamize/).**
+**Read more on [the readme](https://github.com/cowtoolz/webcamize/).**
 
 ![](./assets/nightynight.svg)

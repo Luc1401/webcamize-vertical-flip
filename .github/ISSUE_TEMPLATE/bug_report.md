@@ -3,16 +3,16 @@ name: Bug report
 about: Create a report to help us improve
 title: Descriptive Title of Bug or Issue
 labels: bug
-assignees: weebney
+assignees: cowtoolz
 
 ---
 
 Hey! Thanks for opening an issue, I really appreciate it. Follow the template below so I can help you as fast and efficiently as possible.
 Before submitting this issue, please check the supported devices list. If your device isn't on that list, please do not submit the issue. If your device is not on the list but is a camera manufactured after 2016, you may also submit an issue.
-Supported devices: https://github.com/weebney/webcamize/blob/master/assets/supported.md
+Supported devices: https://github.com/cowtoolz/webcamize/blob/master/assets/supported.md
 
 Thanks,
-weebney
+cowtoolz
 
 Please remove everything above the dashes before submitting.
 
