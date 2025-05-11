@@ -1,3 +1,11 @@
+> [!IMPORTANT]
+> Webcamize 2.0 will be getting a full overhaul in Rust, as well as full support for both macOS and Windows.
+> 
+> Feel free to open issues, but contributions will only be accepted on the [`rust`](https://github.com/cowtoolz/webcamize/tree/rust) branch.
+> 
+
+<br/>
+
 <div align="center">
 <img src="./assets/header.svg">
 
