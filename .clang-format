@@ -1,0 +1,10 @@
+---
+Language: Cpp
+BasedOnStyle: Chromium
+IndentWidth: 4
+SortIncludes: true
+AllowShortFunctionsOnASingleLine: true
+AllowShortIfStatementsOnASingleLine: true
+AllowShortLoopsOnASingleLine: true
+BreakBeforeBinaryOperators: true
+---
