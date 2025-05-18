@@ -1,9 +1,3 @@
-ifeq ($(shell which clang 2>/dev/null),)
-    CC = gcc
-else
-    CC = clang
-endif
-
 CFLAGS = -O3 -march=native -mtune=native -ffast-math -flto -Wall -Wextra
 LDFLAGS = -flto
 LIBS = $(shell pkg-config --libs libgphoto2 libgphoto2_port)
