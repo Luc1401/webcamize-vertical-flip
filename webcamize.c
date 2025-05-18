@@ -3,6 +3,14 @@
 #define AUTHOR "W. Turner Abney"
 #define YEAR "2025"
 
+#if defined(_WIN32) || defined(_WIN64) || defined(__WIN32__) || defined(__WINDOWS__)
+#define OS_WINDOWS
+#elif defined(__APPLE__) && defined(__MACH__)
+#define OS_MACOS
+#elif defined(__linux__) || defined(__FreeBSD__)
+#define OS_LINUX
+#endif
+
 #include <ctype.h>
 #include <getopt.h>
 #include <gphoto2/gphoto2.h>
@@ -135,11 +143,15 @@ int cli(int argc, char* argv[]) {
 
             case 'd':
                 if (optarg) {
+#if defined(OS_LINUX)
                     if (!is_non_negative_integer(optarg)) {
                         log_fatal("Argument for --device must be a non-negative integer");
                         return 1;
                     }
                     device_number = atoi(optarg);
+#else
+                    log_warn("Option --device ignored as it does nothing on your operating system");
+#endif
                 } else {
                     log_fatal("Missing argument for --device");
                     return 1;
@@ -188,16 +200,18 @@ void print_usage() {
     printf("Usage: webcamize [OPTIONS...]\n");
     printf("\n");
     printf("  -s,  --status                 Print a status report for webcamize and quit\n");
-    printf("  -c,  --camera NAME            Specify a gphoto2 camera to use; autodetects by default\n");
+    printf("  -c,  --camera NAME            Specify a camera to use by its name; autodetects by default\n");
+#if defined(OS_LINUX)
     printf("  -d,  --device NUMBER          Specify the /dev/video_ device number to use (default: %d)\n",
            device_number);
+#endif
     printf("\n");
     printf("  -l,  --log-level LEVEL        Set the log level (DEBUG, INFO, WARN, FATAL; default: INFO)\n");
     printf("       --no-color               Disable the use of colors in the terminal\n");
     printf("  -v,  --version                Print version info and quit\n");
     printf("  -h,  --help                   Show this help message\n");
     printf("\n");
-    printf("Webcamize "VERSION", copyright (c) "AUTHOR" "YEAR" licensed "LICENSE"\n");
+    printf("Webcamize " VERSION ", copyright (c) " AUTHOR " " YEAR " licensed " LICENSE "\n");
 }
 
 bool is_valid_log_level(const char* level) {

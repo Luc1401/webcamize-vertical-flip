@@ -1,5 +1,4 @@
-CFLAGS = -O3 -march=native -mtune=native -ffast-math -flto -Wall -Wextra
-LDFLAGS = -flto
+CFLAGS = -Ofast -march=native -mtune=native -fomit-frame-pointer -Wall -Wextra
 LIBS = $(shell pkg-config --libs libgphoto2 libgphoto2_port)
 CPPFLAGS = $(shell pkg-config --cflags libgphoto2 libgphoto2_port)
 BINDIR = bin
