@@ -9,4 +9,5 @@ AllowShortFunctionsOnASingleLine: true
 AllowShortIfStatementsOnASingleLine: true
 AllowShortLoopsOnASingleLine: true
 BreakBeforeBinaryOperators: true
+IndentPPDirectives: BeforeHash
 ---

@@ -1,6 +1,6 @@
-CFLAGS = -Ofast -march=native -mtune=native -fomit-frame-pointer -Wall -Wextra
-LIBS = $(shell pkg-config --libs libgphoto2 libgphoto2_port)
-CPPFLAGS = $(shell pkg-config --cflags libgphoto2 libgphoto2_port)
+CFLAGS = -Wall -Wextra -Ofast -march=native -mtune=native
+INCLUDES = $(shell pkg-config --cflags libv4l2 libgphoto2 libgphoto2_port libavformat libavcodec libavutil libswscale)
+LIBS = $(shell pkg-config --libs libv4l2 libgphoto2 libgphoto2_port libavformat libavcodec libavutil libswscale)
 BINDIR = bin
 
 all: $(BINDIR)/webcamize
@@ -9,7 +9,7 @@ $(BINDIR):
 	mkdir -p $(BINDIR)
 
 $(BINDIR)/webcamize: webcamize.c | $(BINDIR)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ $< $(LDFLAGS) $(LIBS)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $< $(LIBS)
 
 clean:
 	rm -rf $(BINDIR)
