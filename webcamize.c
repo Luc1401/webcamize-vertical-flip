@@ -3,7 +3,6 @@
 #define AUTHOR "W. Turner Abney"
 #define YEAR "2025"
 
-#include <ctype.h>
 #include <fcntl.h>
 #include <getopt.h>
 #include <signal.h>
@@ -39,6 +38,9 @@ char* camera_model = NULL;
 int file_sink = -1;
 int width = 640;
 int height = 480;
+long desired_fps = 90;
+bool no_convert = false;
+bool should_wait = false;
 
 #define log(color, name, format, ...)                                                        \
     fprintf(stderr, "webcamize: %s [" name "] %s " format "\n", colors_enabled ? color : "", \
@@ -107,18 +109,6 @@ int setup_v4l2_format(void) {
         return -1;
     }
 
-    // Double-check if the format was accepted
-    if (fmt.fmt.pix.width != (__u32)width || fmt.fmt.pix.height != (__u32)height
-        || fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_RGB24) {
-        log_warn("Device changed requested format. Using: %dx%d, format: %c%c%c%c", fmt.fmt.pix.width,
-                 fmt.fmt.pix.height, (fmt.fmt.pix.pixelformat & 0xFF), (fmt.fmt.pix.pixelformat >> 8) & 0xFF,
-                 (fmt.fmt.pix.pixelformat >> 16) & 0xFF, (fmt.fmt.pix.pixelformat >> 24) & 0xFF);
-
-        // Update our width and height to match what the device accepted
-        width = fmt.fmt.pix.width;
-        height = fmt.fmt.pix.height;
-    }
-
     log_debug("V4L2 format set to %dx%d RGB24", width, height);
     return 0;
 }
@@ -147,9 +137,9 @@ int rgb_buffer_size = 0;
 int init_ffmpeg_conversion(void);
 int convert_to_rgb24(const char* image_data, unsigned long image_data_size, uint8_t** rgb_data, int* rgb_data_size);
 
-volatile int alive = 1;
+volatile bool alive = true;
 void sig_handler(int signo) {
-    if (signo == SIGINT) alive = 0;
+    if (signo == SIGINT) alive = false;
 }
 int cli(int argc, char* argv[]);
 void print_usage(void);
@@ -169,10 +159,22 @@ int main(int argc, char* argv[]) {
         log_fatal("Failed to create a new camera: %s", gp_result_as_string(ret));
         goto cleanup;
     }
-    ret = gp_camera_init(gp2_camera, gp2_context);
-    if (ret < GP_OK) {
-        log_fatal("Failed to autodetect camera: %s", gp_result_as_string(ret));
-        goto cleanup;
+
+    bool waiting = should_wait;
+    while (waiting && alive) {
+        log_debug("waiting...");
+        ret = gp_camera_init(gp2_camera, gp2_context);
+        if (ret < GP_OK) {
+            if (should_wait) {
+                // 3s polling rate
+                usleep(3000000);
+                continue;
+            } else {
+                log_fatal("Failed to autodetect camera: %s", gp_result_as_string(ret));
+                goto cleanup;
+            }
+        }
+        waiting = false;
     }
     ret = gp_file_new(&gp2_file);
     if (ret < GP_OK) {
@@ -180,10 +182,12 @@ int main(int argc, char* argv[]) {
         goto cleanup;
     }
 
-    ret = init_ffmpeg_conversion();
-    if (ret < 0) {
-        log_fatal("Failed to initialize FFmpeg conversion");
-        goto cleanup;
+    if (!no_convert) {
+        ret = init_ffmpeg_conversion();
+        if (ret < 0) {
+            log_fatal("Failed to initialize FFmpeg conversion");
+            goto cleanup;
+        }
     }
 
 #if defined(OS_LINUX)
@@ -203,18 +207,17 @@ int main(int argc, char* argv[]) {
 #endif
 
     // main loop
-    const char* image_data;
+    const char* image_data = NULL;
     unsigned long image_data_size;
-    uint8_t* rgb_data = NULL;
-    int rgb_data_size = 0;
-
-    long desired_fps = 60;
+    uint8_t* output_data = NULL;
+    int output_data_size = 0;
     long desired_frame_time = CLOCKS_PER_SEC / desired_fps;
     long frame_start;
     long frame_time;
 
     while (alive) {
         frame_start = clock();
+
         ret = gp_camera_capture_preview(gp2_camera, gp2_file, gp2_context);
         if (ret != GP_OK) {
             log_fatal("Failed to capture preview: %s\n", gp_result_as_string(ret));
@@ -222,24 +225,27 @@ int main(int argc, char* argv[]) {
         }
         ret = gp_file_get_data_and_size(gp2_file, &image_data, &image_data_size);
         if (ret != GP_OK) {
-            log_fatal("Failed to get data from file: %s\n", gp_result_as_string(ret));
+            log_fatal("Failed to get data from camera file: %s\n", gp_result_as_string(ret));
             break;
         }
 
-        ret = convert_to_rgb24(image_data, image_data_size, &rgb_data, &rgb_data_size);
-        if (ret < 0) {
-            log_warn(
-                "Failed to convert image to RGB24, using original image data "
-                "instead");
-            rgb_data = (uint8_t*)image_data;
-            rgb_data_size = image_data_size;
+        if (!no_convert) {
+            ret = convert_to_rgb24(image_data, image_data_size, &output_data, &output_data_size);
+            if (ret < 0) {
+                log_warn("Failed to convert image to RGB24, using original image data instead");
+                output_data = (uint8_t*)image_data;
+                output_data_size = image_data_size;
+            }
+        } else {
+            output_data = (uint8_t*)image_data;
+            output_data_size = image_data_size;
         }
 
         if (file_sink != -1) {
-            int n = write(file_sink, rgb_data, rgb_data_size);
-            if (n != rgb_data_size) {
+            int n = write(file_sink, output_data, output_data_size);
+            if (n != output_data_size) {
                 ret = errno;
-                log_fatal("Failed to write all data to file sink, wrote %d of %d bytes: %s\n", n, rgb_data_size,
+                log_fatal("Failed to write all data to file sink, wrote %d of %d bytes: %s\n", n, output_data_size,
                           strerror(errno));
                 break;
             }
@@ -267,10 +273,17 @@ int main(int argc, char* argv[]) {
 cleanup:
     // general
     if (file_sink) close(file_sink);
+
+#if defined(OS_LINUX)
+    // v4l2
     if (v4l2_fd >= 0) {
         close(v4l2_fd);
         v4l2_fd = -1;
     }
+#endif
+
+    // restart if we are daemonized
+    if (should_wait && alive) main(argc, argv);
 
     // ffmpeg
     if (rgb_buffer) av_free(rgb_buffer);
@@ -426,10 +439,9 @@ int convert_to_rgb24(const char* image_data, unsigned long image_data_size, uint
         decoder_ctx->lowres = 0;
         decoder_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
 
-
         enum AVHWDeviceType type = av_hwdevice_find_type_by_name("auto");
         if (type != AV_HWDEVICE_TYPE_NONE) {
-            AVBufferRef *hw_device_ctx = NULL;
+            AVBufferRef* hw_device_ctx = NULL;
             ret = av_hwdevice_ctx_create(&hw_device_ctx, type, NULL, NULL, 0);
             if (ret >= 0) {
                 decoder_ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
@@ -546,17 +558,26 @@ int cli(int argc, char* argv[]) {
     static struct option long_options[]
         = {{"camera", required_argument, 0, 'c'}, {"file", optional_argument, 0, 'f'},
            {"device", required_argument, 0, 'd'}, {"log-level", required_argument, 0, 'l'},
-           {"width", required_argument, 0, 'w'},  {"height", required_argument, 0, 'h'},
+           {"wait", no_argument, 0, 'w'},         {"no-convert", no_argument, 0, 'x'},
            {"no-color", no_argument, 0, 0},       {"version", no_argument, 0, 'v'},
            {"help", no_argument, 0, 'H'},         {0, 0, 0, 0}};
     int option_index = 0;
     int c;
     // opterr = 0;
-    while ((c = getopt_long(argc, argv, "vc:f::d:l:w:h:H", long_options, &option_index)) != -1) {
+    while ((c = getopt_long(argc, argv, "vxc:f::wd:l:H", long_options, &option_index)) != -1) {
         switch (c) {
             case 'v':
                 log_info("Using webcamize %s", VERSION);
                 return -1;
+
+            case 'x':
+                no_convert = true;
+                break;
+
+            case 'w':
+                log_debug("Should wait!");
+                should_wait = true;
+                break;
 
             case 'c':
                 if (optarg) {
@@ -599,32 +620,6 @@ int cli(int argc, char* argv[]) {
 #endif
                 break;
 
-            case 'w':
-                if (optarg) {
-                    width = atoi(optarg);
-                    if (width <= 0) {
-                        log_fatal("Width must be a positive integer");
-                        return 1;
-                    }
-                } else {
-                    log_fatal("Missing argument for --width");
-                    return 1;
-                }
-                break;
-
-            case 'h':
-                if (optarg) {
-                    height = atoi(optarg);
-                    if (height <= 0) {
-                        log_fatal("Height must be a positive integer");
-                        return 1;
-                    }
-                } else {
-                    log_fatal("Missing argument for --height");
-                    return 1;
-                }
-                break;
-
             case 'l':
                 if (optarg) {
                     if (strcasecmp(optarg, "DEBUG") == 0) {
@@ -645,7 +640,7 @@ int cli(int argc, char* argv[]) {
                 }
                 break;
 
-            case 'H':
+            case 'h':
                 print_usage();
                 return -1;
 
@@ -675,12 +670,12 @@ void print_usage() {
     printf("\n");
     printf("  -s,  --status                 Print a status report for webcamize and quit\n");
     printf("  -c,  --camera NAME            Specify a camera to use by its name; autodetects by default\n");
-    printf("  -f,  --file NAME              \n");
+    printf("  -f,  --file [PATH]            Output to a file; if no argument is passed, output to stdout\n");
 #if defined(OS_LINUX)
     printf("  -d,  --device NUMBER          Specify the /dev/video_ device number to use (default: 0)\n");
 #endif
-    printf("  -w,  --width WIDTH            Specify output width (default: %d)\n", width);
-    printf("  -h,  --height HEIGHT          Specify output height (default: %d)\n", height);
+    printf("  -x,  --no-convert             Don't convert from input format before writing\n");
+    printf("  -w,  --wait                   Daemonize the process, preventing it from exiting\n");
     printf("\n");
     printf("  -l,  --log-level LEVEL        Set the log level (DEBUG, INFO, WARN, FATAL; default: INFO)\n");
     printf("       --no-color               Disable the use of colors in the terminal\n");
