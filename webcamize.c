@@ -1,3 +1,4 @@
+#include <gphoto2/gphoto2-list.h>
 #define VERSION "2.0.0"
 #define LICENSE "BSD-2-Clause"
 #define AUTHOR "W. Turner Abney"
@@ -40,7 +41,7 @@ int width = 640;
 int height = 480;
 long desired_fps = 90;
 bool no_convert = false;
-bool should_wait = false;
+bool daemonized = false;
 
 #define log(color, name, format, ...)                                                        \
     fprintf(stderr, "webcamize: %s [" name "] %s " format "\n", colors_enabled ? color : "", \
@@ -54,8 +55,11 @@ bool should_wait = false;
 #define log_fatal(format, ...) log("\e[0;101m", "FATL", format, ##__VA_ARGS__)
 
 #if defined(OS_LINUX)
+    #include <ctype.h>
+
     #include <linux/videodev2.h>
     #include <sys/ioctl.h>
+
 int v4l2_dev_num = -1;
 int v4l2_fd = -1;
 
@@ -160,22 +164,19 @@ int main(int argc, char* argv[]) {
         goto cleanup;
     }
 
-    bool waiting = should_wait;
-    while (waiting && alive) {
-        log_debug("waiting...");
-        ret = gp_camera_init(gp2_camera, gp2_context);
-        if (ret < GP_OK) {
-            if (should_wait) {
-                // 3s polling rate
-                usleep(3000000);
-                continue;
-            } else {
-                log_fatal("Failed to autodetect camera: %s", gp_result_as_string(ret));
-                goto cleanup;
-            }
+init_camera:
+    ret = gp_camera_init(gp2_camera, gp2_context);
+    if (ret < GP_OK) {
+        if (daemonized) {
+            // 3s polling rate
+            usleep(3000000);
+            goto init_camera;
+        } else {
+            log_fatal("Failed to autodetect camera: %s", gp_result_as_string(ret));
+            goto cleanup;
         }
-        waiting = false;
     }
+
     ret = gp_file_new(&gp2_file);
     if (ret < GP_OK) {
         log_fatal("Failed to create CameraFile: %s", gp_result_as_string(ret));
@@ -254,7 +255,7 @@ int main(int argc, char* argv[]) {
 
 #if defined(OS_LINUX)
         if (v4l2_fd > 0) {
-            ret = write_to_v4l2_device(rgb_data, rgb_data_size);
+            ret = write_to_v4l2_device(output_data, output_data_size);
             if (ret < 0) {
                 log_fatal("Failed to write to V4L2 device");
                 break;
@@ -283,7 +284,7 @@ cleanup:
 #endif
 
     // restart if we are daemonized
-    if (should_wait && alive) main(argc, argv);
+    if (daemonized && alive) main(argc, argv);
 
     // ffmpeg
     if (rgb_buffer) av_free(rgb_buffer);
@@ -424,6 +425,7 @@ int convert_to_rgb24(const char* image_data, unsigned long image_data_size, uint
             return -1;
         }
 
+        // Various tweaks for low-latency decoding
         AVDictionary* opts = NULL;
         av_dict_set(&opts, "threads", "auto", 0);
         av_dict_set(&opts, "thread_type", "frame", 0);
@@ -431,14 +433,11 @@ int convert_to_rgb24(const char* image_data, unsigned long image_data_size, uint
         decoder_ctx->thread_type = FF_THREAD_FRAME;
         decoder_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
         decoder_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
-        decoder_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
         decoder_ctx->flags2 |= AV_CODEC_FLAG2_CHUNKS;
-        decoder_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
-        decoder_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
         decoder_ctx->get_buffer2 = avcodec_default_get_buffer2;
         decoder_ctx->lowres = 0;
-        decoder_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
 
+        // Try to find a device for hardware acceleration
         enum AVHWDeviceType type = av_hwdevice_find_type_by_name("auto");
         if (type != AV_HWDEVICE_TYPE_NONE) {
             AVBufferRef* hw_device_ctx = NULL;
@@ -576,7 +575,7 @@ int cli(int argc, char* argv[]) {
 
             case 'w':
                 log_debug("Should wait!");
-                should_wait = true;
+                daemonized = true;
                 break;
 
             case 'c':
