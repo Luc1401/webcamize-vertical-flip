@@ -7,10 +7,13 @@
 <div align="center">
 <img src="./assets/header.svg">
 
-<ul>
-<summary style="list-style-type: none;"><h1 style="display: inline-block;">webcamize</h1></summary>
-<summary style="list-style-type: none;"><h2 style="display: inline-block;">Use any camera as a webcam!</h2></summary>
-</ul>
+
+<div id="user-content-toc" align="center">
+  <ul>
+  <summary><h1>webcamize</h1></summary>
+  <summary><h2>Use any camera as a webcam!</h2></summary>
+  </ul>
+</div>
 
 <!-- <strong>
 <samp>
