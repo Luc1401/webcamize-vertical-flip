@@ -1,18 +1,19 @@
 > [!IMPORTANT]
-> Webcamize 2.0 will be getting a full overhaul in Rust, as well as full support for both macOS and Windows.
-> 
-> Feel free to open issues, but contributions will only be accepted on the [`rust`](https://github.com/cowtoolz/webcamize/tree/rust) branch.
-> 
+> Webcamize 2.0 will be getting a full overhaul, as well as full support for both macOS and Windows.
+> Feel free to open issues, but most contributions will not be merged.
 
 <br/>
 
 <div align="center">
-<img src="./assets/header.svg">
+<img src="./doc/assets/header.svg">
 
-<ul>
-<summary style="list-style-type: none;"><h1 style="display: inline-block;">webcamize</h1></summary>
-<summary style="list-style-type: none;"><h2 style="display: inline-block;">Use any camera as a webcam!</h2></summary>
-</ul>
+
+<div id="user-content-toc" align="center">
+  <ul>
+  <summary><h1>webcamize</h1></summary>
+  <summary><h2>Use (almost) any camera as a webcam!</h2></summary>
+  </ul>
+</div>
 
 <!-- <strong>
 <samp>
@@ -22,22 +23,20 @@
 </samp>
 </strong> -->
 
-<img alt="Awesomeness badge" src="https://img.shields.io/badge/video-lots-orchid?style=flat-square">
-<img alt="License" src="https://img.shields.io/github/license/cowtoolz/webcamize?style=flat-square">
-<img alt="GitHub top language" src="https://img.shields.io/github/languages/top/cowtoolz/webcamize?style=flat-square">
-
-<img alt="Awesomeness badge" src="https://img.shields.io/badge/awesome-extremely-limegreen?style=flat-square">
-
+<img alt="Video badge: Video Lots" src="https://img.shields.io/badge/video-lots-orchid?style=flat-square">
+<img alt="License badge: License BSD-2-Clause" src="https://img.shields.io/github/license/cowtoolz/webcamize?style=flat-square">
+<img alt="Language badge: C 100%" src="https://img.shields.io/github/languages/top/cowtoolz/webcamize?style=flat-square">
+<img alt="Awesomeness badge: Awesome Extremely" src="https://img.shields.io/badge/awesome-extremely-limegreen?style=flat-square">
 
 <br>
 </div>
 
-Webcamize allows you to use [basically any modern camera](./assets/supported.md) as a webcam on Linux—your DSLR, mirrorless, camcorder, point-and-shoot, and even some smartphones/tablets. It also gets many webcams that don't work out of the box on Linux up and running in a flash.
+Webcamize allows you to use [basically any modern camera](./doc/assets/supported.md) as a webcam on Linux—your DSLR, mirrorless, camcorder, point-and-shoot, and even some smartphones/tablets. It also gets many webcams that don't work out of the box on Linux up and running in a flash.
 
 <div align="center" width="33%">
 <br>
 
-<img src="./assets/demo.gif" style="width:75%;">
+<img src="./doc/assets/demo.gif" style="width:75%;">
 </div>
 <br>
 <div align="center" width="33%">
@@ -60,7 +59,7 @@ It's really that easy! Webcamize is a tiny bash script that coordinates [gphoto2
 
 ## Using webcamize
 
-<img src="./assets/usage.svg">
+<img src="./doc/assets/usage.svg">
 
 </div>
 
@@ -75,7 +74,7 @@ $ webcamize
 
 In the vast majority of cases, that's all you'll need to do. You might be asked to enter your password for `modprobe` to enable the video device.
 
-[**View the list of supported cameras and devices**](./assets/supported.md).
+[**View the list of supported cameras and devices**](./doc/assets/supported.md).
 
 ### Advanced Usage
 
@@ -174,7 +173,7 @@ Webcamize should now run in the background automatically when you start up your 
 
 ## Installation
 
-<img src="./assets/installation.svg">
+<img src="./doc/assets/installation.svg">
 
 </div>
 
@@ -251,7 +250,7 @@ This should upgrade you to the latest tagged version.
 
 ## Issues & Contributing
 
-<img src="./assets/issues.svg">
+<img src="./doc/assets/issues.svg">
 
 </div>
 
@@ -264,7 +263,7 @@ This project follows the following philosophy:
 - If the documentation is confusing, then the documentation is buggy
 - If there is a bug in this project, then we can work together to fix it.
 
-If you get stumped, find a bug, have a bad time, or have a suggestion, please open an issue in the [issue tracker](https://github.com/cowtoolz/webcamize/issues/)—noobs welcome!
+If you find yourself stumped, find a bug, have a bad time using webcamize, or have a suggestion that could make webcamize better, please open an issue in the [issue tracker](https://github.com/cowtoolz/webcamize/issues/)—noobs welcome!
 
 ### Contributing
 
@@ -278,7 +277,7 @@ Webcamize has only a few contribution rules to keep the project's growing at a s
 
 ## Cheers!
 
-<img src="./assets/cheers.svg">
+<img src="./doc/assets/cheers.svg">
 
 </div>
 
@@ -294,4 +293,4 @@ This is just a little script I cooked up one afternoon—the software it depends
 
 ![](https://starchart.cc/cowtoolz/webcamize.svg)
 
-![](././assets/nightynight.svg)
+![](././doc/assets/nightynight.svg)

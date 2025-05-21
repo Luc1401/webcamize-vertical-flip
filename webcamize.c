@@ -1,4 +1,3 @@
-#include <gphoto2/gphoto2-list.h>
 #define VERSION "2.0.0"
 #define LICENSE "BSD-2-Clause"
 #define AUTHOR "W. Turner Abney"
@@ -14,6 +13,9 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <gphoto2/gphoto2-camera.h>
+#include <gphoto2/gphoto2-list.h>
+#include <gphoto2/gphoto2-widget.h>
 #include <gphoto2/gphoto2.h>
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -27,7 +29,7 @@
     #define OS_WINDOWS
 #elif defined(__APPLE__) && defined(__MACH__)
     #define OS_MACOS
-#elif defined(__linux__) || defined(__FreeBSD__)
+#elif defined(__linux__)
     #define OS_LINUX
 #endif
 
@@ -35,13 +37,13 @@ typedef enum { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_WARN, LOG_LEVEL_FATAL 
 LogLevel log_level = LOG_LEVEL_INFO;
 bool colors_enabled = true;
 
-char* camera_model = NULL;
 int file_sink = -1;
-int width = 640;
-int height = 480;
+int width = 1024;
+int height = 576;
 long desired_fps = 90;
 bool no_convert = false;
 bool daemonized = false;
+char camera_model[32] = "";
 
 #define log(color, name, format, ...)                                                        \
     fprintf(stderr, "webcamize: %s [" name "] %s " format "\n", colors_enabled ? color : "", \
@@ -56,29 +58,97 @@ bool daemonized = false;
 
 #if defined(OS_LINUX)
     #include <ctype.h>
-
+    #include <linux/loop.h>
+    #include <linux/module.h>
     #include <linux/videodev2.h>
     #include <sys/ioctl.h>
+    #include <sys/stat.h>
+    #include <sys/syscall.h>
+    #include <sys/types.h>
+    #include <sys/utsname.h>
+    #include <sys/wait.h>
+
+    #include <libkmod.h>
+
+bool use_v4l2loopback = true;
+
+struct v4l2_loopback_config {
+    __s32 output_nr;
+    __s32 unused;
+    char card_label[32];
+    __u32 min_width;
+    __u32 max_width;
+    __u32 min_height;
+    __u32 max_height;
+    __s32 max_buffers;
+    __s32 max_openers;
+    __s32 debug;
+    __s32 announce_all_caps;
+};
 
 int v4l2_dev_num = -1;
 int v4l2_fd = -1;
+char v4l2_dev_path[20];
+int v4l2loopback_fd = -1;
 
 int init_v4l2_device(void) {
-    char dev_path[20];  // Buffer to hold the resulting string
-    sprintf(dev_path, "/dev/video%d", v4l2_dev_num);
-    log_debug("Initializing V4L2 device: /dev/video%s", dev_path);
+    int ret;
+    if (use_v4l2loopback) {
+        v4l2loopback_fd = open("/dev/v4l2loopback", 0);
+        if (v4l2loopback_fd < 0) {
+            log_warn("Failed to open v4l2loopback control device, attempting to load kernel module: %s",
+                     strerror(errno));
+            struct kmod_ctx* kmod_context = kmod_new(NULL, NULL);
+            struct kmod_module* mod;
+            int ret = kmod_module_new_from_name(kmod_context, "v4l2loopback", &mod);
+            if (ret != 0) {
+                log_fatal("Failed to find v4l2loopback module: %s", strerror(errno));
+                return -1;
+            }
+
+            ret = kmod_module_probe_insert_module(mod, KMOD_PROBE_IGNORE_LOADED, "devices=0 exclusive_caps=1", NULL,
+                                                  NULL, NULL);
+            if (ret < 0) {
+                log_fatal("Failed to insert v4l2loopback module: %s", strerror(errno));
+                return -1;
+            } else {
+                log_debug("The v4l2loopback module is present");
+            }
+
+            kmod_module_unref(mod);
+            kmod_unref(kmod_context);
+        }
+
+        v4l2loopback_fd = open("/dev/v4l2loopback", 0);
+        if (v4l2loopback_fd < 0) {
+            log_warn("Failed to open v4l2loopback control device: %s", strerror(errno));
+            return -1;
+        }
+        struct v4l2_loopback_config cfg = {0};
+        cfg.announce_all_caps = false;
+        cfg.output_nr = (int32_t)v4l2_dev_num;
+        snprintf(cfg.card_label, sizeof(cfg.card_label), "%s", camera_model);
+        ret = ioctl(v4l2loopback_fd, LOOP_CTL_ADD, &cfg);
+        if (ret < 0) {
+            log_fatal("Failed to create a v4l2loopback device: %s", strerror(errno));
+            return -1;
+        }
+        v4l2_dev_num = ret;
+    }
+    sprintf(v4l2_dev_path, "/dev/video%d", v4l2_dev_num);
+    log_debug("Initializing V4L2 device: %s", v4l2_dev_path);
 
     // Open the V4L2 device
-    v4l2_fd = open(dev_path, O_RDWR);
+    v4l2_fd = open(v4l2_dev_path, O_RDWR);
     if (v4l2_fd < 0) {
-        log_fatal("Failed to open V4L2 device %s: %s", dev_path, strerror(errno));
+        log_warn("Failed to open V4L2 device %s: %s", v4l2_dev_path, strerror(errno));
         return -1;
     }
 
     // Check if this is a valid V4L2 device
     struct v4l2_capability cap;
     if (ioctl(v4l2_fd, VIDIOC_QUERYCAP, &cap) < 0) {
-        log_fatal("Device %s is not a valid V4L2 device: %s", dev_path, strerror(errno));
+        log_fatal("Device %s is not a valid V4L2 device: %s", v4l2_dev_path, strerror(errno));
         close(v4l2_fd);
         v4l2_fd = -1;
         return -1;
@@ -86,7 +156,7 @@ int init_v4l2_device(void) {
 
     // Check if it supports video output
     if (!(cap.capabilities & V4L2_CAP_VIDEO_OUTPUT)) {
-        log_fatal("Device %s does not support video output", dev_path);
+        log_fatal("Device %s does not support video output", v4l2_dev_path);
         close(v4l2_fd);
         v4l2_fd = -1;
         return -1;
@@ -152,11 +222,43 @@ int main(int argc, char* argv[]) {
     int ret = cli(argc, argv);
     if (ret != 0) return ret;
 
+    signal(SIGINT, sig_handler);
+
     Camera* gp2_camera = NULL;
     CameraFile* gp2_file = NULL;
+    CameraList* gp2_camlist = NULL;
     GPContext* gp2_context = gp_context_new();
 
-    signal(SIGINT, sig_handler);
+    gp_list_new(&gp2_camlist);
+    ret = gp_camera_autodetect(gp2_camlist, gp2_context);
+    if (ret < GP_OK) {
+        log_fatal("Failed to autodetect cameras: %s", gp_result_as_string(ret));
+        goto cleanup;
+    }
+
+    if (gp_list_count(gp2_camlist) < 1) {
+        log_fatal("No cameras detected!");
+        goto cleanup;
+    }
+
+    const char* found_camera_model = NULL;
+    ret = gp_list_get_name(gp2_camlist, 0, &found_camera_model);
+    if (ret < GP_OK) {
+        log_fatal("Failed to get camera name: %s", gp_result_as_string(ret));
+        goto cleanup;
+    }
+    if (*camera_model) {
+        int index = -1;
+        ret = gp_list_find_by_name(gp2_camlist, &index, camera_model);
+        if (ret < GP_OK) {
+            log_warn("Couldn't find a camera with the name `%s`: %s", camera_model, gp_result_as_string(ret));
+            log_warn("Falling back to autodetected camera `%s`", found_camera_model);
+        }
+
+        // TODO: Actually set the specified camera
+    }
+
+    snprintf(camera_model, sizeof(camera_model), "%s", found_camera_model);
 
     ret = gp_camera_new(&gp2_camera);
     if (ret < GP_OK) {
@@ -192,7 +294,7 @@ init_camera:
     }
 
 #if defined(OS_LINUX)
-    if (v4l2_dev_num >= 0) {
+    if (use_v4l2loopback) {
         ret = init_v4l2_device();
         if (ret < 0) {
             log_fatal("Failed to initialize V4L2 device");
@@ -277,9 +379,18 @@ cleanup:
 
 #if defined(OS_LINUX)
     // v4l2
-    if (v4l2_fd >= 0) {
+    if (v4l2_fd > 0) {
         close(v4l2_fd);
         v4l2_fd = -1;
+    }
+    if (v4l2loopback_fd > 0) {
+        ret = ioctl(v4l2loopback_fd, LOOP_CTL_REMOVE, v4l2_dev_num);
+        if (ret < 0) {
+            log_fatal("Failed to remove the v4l2loopback device: %s", strerror(errno));
+            return -1;
+        }
+        close(v4l2loopback_fd);
+        v4l2loopback_fd = -1;
     }
 #endif
 
@@ -287,6 +398,7 @@ cleanup:
     if (daemonized && alive) main(argc, argv);
 
     // ffmpeg
+    log_debug("Cleaning up ffmpeg...");
     if (rgb_buffer) av_free(rgb_buffer);
     if (sws_ctx) sws_freeContext(sws_ctx);
     if (output_frame) av_frame_free(&output_frame);
@@ -295,14 +407,16 @@ cleanup:
     if (packet_obj) av_packet_free(&packet_obj);
 
     // gphoto
-    if (camera_model) free(camera_model);
+    log_debug("Cleaning up gphoto2...");
+    if (gp2_camlist) gp_list_free(gp2_camlist);
     if (gp2_file) gp_file_free(gp2_file);
     if (gp2_camera) {
         gp_camera_exit(gp2_camera, gp2_context);
         gp_camera_free(gp2_camera);
     }
-    gp_context_unref(gp2_context);
+    if (gp2_context) gp_context_unref(gp2_context);
 
+    log_debug("Exiting, final ret = %d", ret);
     return ret < 0 ? 1 : 0;
 }
 
@@ -554,16 +668,21 @@ int cli(int argc, char* argv[]) {
         colors_enabled = false;
     }
 
-    static struct option long_options[]
-        = {{"camera", required_argument, 0, 'c'}, {"file", optional_argument, 0, 'f'},
-           {"device", required_argument, 0, 'd'}, {"log-level", required_argument, 0, 'l'},
-           {"wait", no_argument, 0, 'w'},         {"no-convert", no_argument, 0, 'x'},
-           {"no-color", no_argument, 0, 0},       {"version", no_argument, 0, 'v'},
-           {"help", no_argument, 0, 'H'},         {0, 0, 0, 0}};
+    static struct option long_options[] = {{"camera", required_argument, 0, 'c'},
+                                           {"file", optional_argument, 0, 'f'},
+                                           {"device", required_argument, 0, 'd'},
+                                           {"log-level", required_argument, 0, 'l'},
+                                           {"wait", no_argument, 0, 'w'},
+                                           {"no-convert", no_argument, 0, 'x'},
+                                           {"no-v4l2loopback", no_argument, 0, 'b'},
+                                           {"no-color", no_argument, 0, 0},
+                                           {"version", no_argument, 0, 'v'},
+                                           {"help", no_argument, 0, 'H'},
+                                           {0, 0, 0, 0}};
     int option_index = 0;
     int c;
     // opterr = 0;
-    while ((c = getopt_long(argc, argv, "vxc:f::wd:l:H", long_options, &option_index)) != -1) {
+    while ((c = getopt_long(argc, argv, "vxbc:f::wd:l:H", long_options, &option_index)) != -1) {
         switch (c) {
             case 'v':
                 log_info("Using webcamize %s", VERSION);
@@ -573,6 +692,15 @@ int cli(int argc, char* argv[]) {
                 no_convert = true;
                 break;
 
+            case 'b':
+#if defined(OS_LINUX)
+
+                use_v4l2loopback = false;
+#else
+                log_warn("Option --no-v4l2loopback ignored as it does nothing on your operating system");
+#endif
+                break;
+
             case 'w':
                 log_debug("Should wait!");
                 daemonized = true;
@@ -580,7 +708,7 @@ int cli(int argc, char* argv[]) {
 
             case 'c':
                 if (optarg) {
-                    camera_model = strdup(optarg);
+                    snprintf(camera_model, sizeof(camera_model), "%s", optarg);
                 } else {
                     log_fatal("Missing argument for --camera");
                     return 1;
@@ -672,6 +800,7 @@ void print_usage() {
     printf("  -f,  --file [PATH]            Output to a file; if no argument is passed, output to stdout\n");
 #if defined(OS_LINUX)
     printf("  -d,  --device NUMBER          Specify the /dev/video_ device number to use (default: 0)\n");
+    printf("  -b,  --no-v4l2loopback        Disable v4l2loopback module loading and configuration\n");
 #endif
     printf("  -x,  --no-convert             Don't convert from input format before writing\n");
     printf("  -w,  --wait                   Daemonize the process, preventing it from exiting\n");
