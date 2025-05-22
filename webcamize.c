@@ -127,11 +127,25 @@ int init_v4l2_device(void) {
         struct v4l2_loopback_config cfg = {0};
         cfg.announce_all_caps = false;
         cfg.output_nr = (int32_t)v4l2_dev_num;
-        snprintf(cfg.card_label, sizeof(cfg.card_label), "%s", camera_model);
+
+        if (strlen(camera_model) == 0) {
+            snprintf(cfg.card_label, sizeof(cfg.card_label), "Webcamize");
+        } else if (strlen(camera_model) > sizeof(cfg.card_label) - 11) {
+            snprintf(cfg.card_label, sizeof(cfg.card_label), "%s", camera_model);
+        } else {
+            snprintf(cfg.card_label, sizeof(cfg.card_label), "%s Webcamize", camera_model);
+        }
+
         ret = ioctl(v4l2loopback_fd, LOOP_CTL_ADD, &cfg);
         if (ret < 0) {
-            log_fatal("Failed to create a v4l2loopback device: %s", strerror(errno));
-            return -1;
+            log_warn("Failed to create a loopback device: %s", strerror(errno));
+            log_warn("Falling back to an automatically selected device number");
+            cfg.output_nr = -1;
+            ret = ioctl(v4l2loopback_fd, LOOP_CTL_ADD, &cfg);
+            if (ret < 0) {
+                log_fatal("Failed to create a loopback device: %s", strerror(errno));
+                return -1;
+            }
         }
         v4l2_dev_num = ret;
     }
@@ -173,22 +187,22 @@ int setup_v4l2_format(void) {
     fmt.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
     fmt.fmt.pix.width = width;
     fmt.fmt.pix.height = height;
-    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
+    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
     fmt.fmt.pix.field = V4L2_FIELD_NONE;
-    fmt.fmt.pix.bytesperline = width * 3;  // RGB24 = 3 bytes per pixel
-    fmt.fmt.pix.sizeimage = width * height * 3;
+    fmt.fmt.pix.bytesperline = width * 2;  // YUYV = 2 bytes per pixel
+    fmt.fmt.pix.sizeimage = width * height * 2;
 
     if (ioctl(v4l2_fd, VIDIOC_S_FMT, &fmt) < 0) {
         log_fatal("Could not set format for /dev/video%d: %s", v4l2_dev_num, strerror(errno));
         return -1;
     }
 
-    log_debug("V4L2 format set to %dx%d RGB24", width, height);
+    log_debug("V4L2 format set to %dx%d YUYV", width, height);
     return 0;
 }
 
-int write_to_v4l2_device(const uint8_t* rgb_data, int data_size) {
-    int n = write(v4l2_fd, rgb_data, data_size);
+int write_to_v4l2_device(const uint8_t* data, int data_size) {
+    int n = write(v4l2_fd, data, data_size);
     if (n < 0) {
         log_fatal("Failed to write to V4L2 device: %s", strerror(errno));
         return -1;
@@ -205,11 +219,11 @@ AVFrame* input_frame = NULL;
 AVFrame* output_frame = NULL;
 AVPacket* packet_obj = NULL;
 struct SwsContext* sws_ctx = NULL;
-uint8_t* rgb_buffer = NULL;
-int rgb_buffer_size = 0;
+uint8_t* ffmpeg_output_buffer = NULL;
+int ffmpeg_output_buffer_size = 0;
 
 int init_ffmpeg_conversion(void);
-int convert_to_rgb24(const char* image_data, unsigned long image_data_size, uint8_t** rgb_data, int* rgb_data_size);
+int convert_ffmpeg(const char* image_data, unsigned long image_data_size, uint8_t** output_data, int* output_data_size);
 
 volatile bool alive = true;
 void sig_handler(int signo) {
@@ -227,7 +241,87 @@ int main(int argc, char* argv[]) {
     Camera* gp2_camera = NULL;
     CameraFile* gp2_file = NULL;
     CameraList* gp2_camlist = NULL;
-    GPContext* gp2_context = gp_context_new();
+    GPContext* gp2_context = NULL;
+
+#if defined(OS_LINUX)
+    if (use_v4l2loopback && (geteuid() != 0)) {
+        log_warn("Webcamize requires sudo when using v4l2loopback!");
+
+        char readlink_buf[128];
+        ret = readlink("/proc/self/exe", readlink_buf, sizeof(readlink_buf));
+        if (ret == -1) {
+            log_fatal("Failed to readlink own executable!");
+            goto cleanup;
+        }
+
+        // Null-terminate the executable path
+        if (ret >= (int)sizeof(readlink_buf)) {
+            log_fatal("Executable path too long!");
+            goto cleanup;
+        }
+        readlink_buf[ret] = '\0';
+
+        pid_t pid = fork();
+        if (pid == -1) {
+            log_fatal("Failed to fork process!");
+            goto cleanup;
+        } else if (pid == 0) {
+            // Child process: re-execute with sudo
+            // Calculate new argv size: "sudo" + executable + original args + NULL
+            int new_argc = argc + 2;
+            char** new_argv = malloc(new_argc * sizeof(char*));
+            if (!new_argv) {
+                log_fatal("Failed to allocate memory for new argv!");
+                exit(1);
+            }
+
+            // Build new argument list
+            new_argv[0] = "sudo";
+            new_argv[1] = readlink_buf;  // Full path to current executable
+
+            // Copy original arguments (skip argv[0] since we use full path)
+            for (int i = 1; i < argc; i++) {
+                new_argv[i + 1] = argv[i];
+            }
+            new_argv[new_argc - 1] = NULL;
+
+            // Execute sudo with the reconstructed arguments
+            execvp("sudo", new_argv);
+
+            // If we reach here, execvp failed
+            log_fatal("Failed to execute sudo!");
+            free(new_argv);
+            exit(1);
+
+        } else {
+            // Parent process: wait for child to complete
+            int status;
+            waitpid(pid, &status, 0);
+            if (WIFEXITED(status)) {
+                // Child exited normally, exit with same code
+                exit(WEXITSTATUS(status));
+            } else if (WIFSIGNALED(status)) {
+                // Child was killed by signal
+                log_fatal("Child process terminated by signal %d", WTERMSIG(status));
+                exit(1);
+            } else {
+                // Unexpected termination
+                log_fatal("Child process terminated unexpectedly");
+                exit(1);
+            }
+        }
+    }
+#endif
+
+    // Initialize gPhoto2 context
+    gp2_context = gp_context_new();
+
+    // Create camera object
+    ret = gp_camera_new(&gp2_camera);
+    if (ret < GP_OK) {
+        log_fatal("Failed to instantiate a new camera: %s", gp_result_as_string(ret));
+        goto cleanup;
+    }
 
     gp_list_new(&gp2_camlist);
     ret = gp_camera_autodetect(gp2_camlist, gp2_context);
@@ -241,30 +335,26 @@ int main(int argc, char* argv[]) {
         goto cleanup;
     }
 
-    const char* found_camera_model = NULL;
-    ret = gp_list_get_name(gp2_camlist, 0, &found_camera_model);
-    if (ret < GP_OK) {
-        log_fatal("Failed to get camera name: %s", gp_result_as_string(ret));
-        goto cleanup;
-    }
+    // If user specified a camera, check if it exists
     if (*camera_model) {
         int index = -1;
         ret = gp_list_find_by_name(gp2_camlist, &index, camera_model);
         if (ret < GP_OK) {
-            log_warn("Couldn't find a camera with the name `%s`: %s", camera_model, gp_result_as_string(ret));
-            log_warn("Falling back to autodetected camera `%s`", found_camera_model);
+            log_warn("Camera '%s' not found, using first detected camera", camera_model);
+            const char* first_camera = NULL;
+            gp_list_get_name(gp2_camlist, 0, &first_camera);
+            snprintf(camera_model, sizeof(camera_model), "%s", first_camera);
+        } else {
+            log_debug("Found requested camera: %s", camera_model);
         }
-
-        // TODO: Actually set the specified camera
+    } else {
+        // No camera specified, use first detected
+        const char* first_camera = NULL;
+        gp_list_get_name(gp2_camlist, 0, &first_camera);
+        snprintf(camera_model, sizeof(camera_model), "%s", first_camera);
     }
 
-    snprintf(camera_model, sizeof(camera_model), "%s", found_camera_model);
-
-    ret = gp_camera_new(&gp2_camera);
-    if (ret < GP_OK) {
-        log_fatal("Failed to create a new camera: %s", gp_result_as_string(ret));
-        goto cleanup;
-    }
+    log_debug("Using camera: %s", camera_model);
 
 init_camera:
     ret = gp_camera_init(gp2_camera, gp2_context);
@@ -307,6 +397,14 @@ init_camera:
             goto cleanup;
         }
     }
+
+    if (*v4l2_dev_path) {
+        log_info("Starting webcam `%s` on %s!", camera_model, v4l2_dev_path);
+    } else {
+        log_info("Starting webcam `%s`!", camera_model);
+    }
+#else
+    log_info("Starting webcam `%s`!", camera_model);
 #endif
 
     // main loop
@@ -333,9 +431,9 @@ init_camera:
         }
 
         if (!no_convert) {
-            ret = convert_to_rgb24(image_data, image_data_size, &output_data, &output_data_size);
+            ret = convert_ffmpeg(image_data, image_data_size, &output_data, &output_data_size);
             if (ret < 0) {
-                log_warn("Failed to convert image to RGB24, using original image data instead");
+                log_warn("Failed to convert image to YUYV, using original image data instead");
                 output_data = (uint8_t*)image_data;
                 output_data_size = image_data_size;
             }
@@ -386,8 +484,8 @@ cleanup:
     if (v4l2loopback_fd > 0) {
         ret = ioctl(v4l2loopback_fd, LOOP_CTL_REMOVE, v4l2_dev_num);
         if (ret < 0) {
-            log_fatal("Failed to remove the v4l2loopback device: %s", strerror(errno));
-            return -1;
+            log_warn("Failed to remove the webcam device /dev/video%d: %s", v4l2_dev_num, strerror(errno));
+            log_warn("Make sure no other programs are using the webcam before you close webcamize!");
         }
         close(v4l2loopback_fd);
         v4l2loopback_fd = -1;
@@ -399,7 +497,7 @@ cleanup:
 
     // ffmpeg
     log_debug("Cleaning up ffmpeg...");
-    if (rgb_buffer) av_free(rgb_buffer);
+    if (ffmpeg_output_buffer) av_free(ffmpeg_output_buffer);
     if (sws_ctx) sws_freeContext(sws_ctx);
     if (output_frame) av_frame_free(&output_frame);
     if (input_frame) av_frame_free(&input_frame);
@@ -411,7 +509,7 @@ cleanup:
     if (gp2_camlist) gp_list_free(gp2_camlist);
     if (gp2_file) gp_file_free(gp2_file);
     if (gp2_camera) {
-        gp_camera_exit(gp2_camera, gp2_context);
+        if (gp2_context) gp_camera_exit(gp2_camera, gp2_context);
         gp_camera_free(gp2_camera);
     }
     if (gp2_context) gp_context_unref(gp2_context);
@@ -436,7 +534,10 @@ int init_ffmpeg_conversion(void) {
     return 0;
 }
 
-int convert_to_rgb24(const char* image_data, unsigned long image_data_size, uint8_t** rgb_data, int* rgb_data_size) {
+int convert_ffmpeg(const char* image_data,
+                   unsigned long image_data_size,
+                   uint8_t** output_data,
+                   int* output_data_size) {
     int ret;
 
     if (!decoder_ctx) {
@@ -613,31 +714,31 @@ int convert_to_rgb24(const char* image_data, unsigned long image_data_size, uint
             sws_freeContext(sws_ctx);
         }
 
-        sws_ctx = sws_getContext(width, height, input_frame->format, width, height, AV_PIX_FMT_RGB24, SWS_FAST_BILINEAR,
-                                 NULL, NULL, NULL);
+        sws_ctx = sws_getContext(width, height, input_frame->format, width, height, AV_PIX_FMT_YUYV422,
+                                 SWS_FAST_BILINEAR, NULL, NULL, NULL);
 
         if (!sws_ctx) {
             log_warn("Could not initialize SwsContext");
             return -1;
         }
 
-        // Reallocate RGB buffer if needed
-        int new_size = av_image_get_buffer_size(AV_PIX_FMT_RGB24, width, height, 1);
-        if (!rgb_buffer || new_size > rgb_buffer_size) {
-            if (rgb_buffer) {
-                av_free(rgb_buffer);
+        // Reallocate output buffer if needed
+        int new_size = av_image_get_buffer_size(AV_PIX_FMT_YUYV422, width, height, 1);
+        if (!ffmpeg_output_buffer || new_size > ffmpeg_output_buffer_size) {
+            if (ffmpeg_output_buffer) {
+                av_free(ffmpeg_output_buffer);
             }
-            rgb_buffer = (uint8_t*)av_malloc(new_size);
-            if (!rgb_buffer) {
-                log_warn("Failed to reallocate RGB buffer");
+            ffmpeg_output_buffer = (uint8_t*)av_malloc(new_size);
+            if (!ffmpeg_output_buffer) {
+                log_warn("Failed to reallocate FFmpeg output buffer");
                 return -1;
             }
-            rgb_buffer_size = new_size;
+            ffmpeg_output_buffer_size = new_size;
         }
 
         // Set up output frame
-        ret = av_image_fill_arrays(output_frame->data, output_frame->linesize, rgb_buffer, AV_PIX_FMT_RGB24, width,
-                                   height, 1);
+        ret = av_image_fill_arrays(output_frame->data, output_frame->linesize, ffmpeg_output_buffer, AV_PIX_FMT_YUYV422,
+                                   width, height, 1);
         if (ret < 0) {
             log_warn("Failed to set up output frame: %s", av_err2str(ret));
             return -1;
@@ -645,10 +746,10 @@ int convert_to_rgb24(const char* image_data, unsigned long image_data_size, uint
 
         output_frame->width = width;
         output_frame->height = height;
-        output_frame->format = AV_PIX_FMT_RGB24;
+        output_frame->format = AV_PIX_FMT_YUYV422;
     }
 
-    // Convert image to RGB24
+    // Rescale image
     ret = sws_scale(sws_ctx, (const uint8_t* const*)input_frame->data, input_frame->linesize, 0, height,
                     output_frame->data, output_frame->linesize);
     if (ret <= 0) {
@@ -657,8 +758,8 @@ int convert_to_rgb24(const char* image_data, unsigned long image_data_size, uint
     }
 
     // Set output parameters
-    *rgb_data = rgb_buffer;
-    *rgb_data_size = rgb_buffer_size;
+    *output_data = ffmpeg_output_buffer;
+    *output_data_size = ffmpeg_output_buffer_size;
 
     return 0;
 }
@@ -677,12 +778,12 @@ int cli(int argc, char* argv[]) {
                                            {"no-v4l2loopback", no_argument, 0, 'b'},
                                            {"no-color", no_argument, 0, 0},
                                            {"version", no_argument, 0, 'v'},
-                                           {"help", no_argument, 0, 'H'},
+                                           {"help", no_argument, 0, 'h'},
                                            {0, 0, 0, 0}};
     int option_index = 0;
     int c;
     // opterr = 0;
-    while ((c = getopt_long(argc, argv, "vxbc:f::wd:l:H", long_options, &option_index)) != -1) {
+    while ((c = getopt_long(argc, argv, "vxbc:f::wd:l:h", long_options, &option_index)) != -1) {
         switch (c) {
             case 'v':
                 log_info("Using webcamize %s", VERSION);
@@ -774,6 +875,7 @@ int cli(int argc, char* argv[]) {
             case 0:
                 if (strcmp(long_options[option_index].name, "no-color") == 0) {
                     colors_enabled = false;
+                    break;
                 }
                 break;
 
@@ -798,17 +900,17 @@ void print_usage() {
     printf("  -s,  --status                 Print a status report for webcamize and quit\n");
     printf("  -c,  --camera NAME            Specify a camera to use by its name; autodetects by default\n");
     printf("  -f,  --file [PATH]            Output to a file; if no argument is passed, output to stdout\n");
+    printf("  -w,  --wait                   Daemonize the process, preventing it from exiting\n");
+    printf("  -x,  --no-convert             Don't convert from input format before writing\n");
 #if defined(OS_LINUX)
-    printf("  -d,  --device NUMBER          Specify the /dev/video_ device number to use (default: 0)\n");
+    printf("  -d,  --device NUMBER          Specify the /dev/video_ device number to use\n");
     printf("  -b,  --no-v4l2loopback        Disable v4l2loopback module loading and configuration\n");
 #endif
-    printf("  -x,  --no-convert             Don't convert from input format before writing\n");
-    printf("  -w,  --wait                   Daemonize the process, preventing it from exiting\n");
     printf("\n");
     printf("  -l,  --log-level LEVEL        Set the log level (DEBUG, INFO, WARN, FATAL; default: INFO)\n");
     printf("       --no-color               Disable the use of colors in the terminal\n");
     printf("  -v,  --version                Print version info and quit\n");
     printf("  -H,  --help                   Show this help message\n");
     printf("\n");
-    printf("Webcamize %s, copyright (c) %s %s licensed %s\n", VERSION, AUTHOR, YEAR, LICENSE);
+    printf("Webcamize %s, copyright (c) %s %s, licensed %s\n", VERSION, AUTHOR, YEAR, LICENSE);
 }
