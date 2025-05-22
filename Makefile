@@ -1,4 +1,4 @@
-CFLAGS = -Wall -Wextra -Ofast -march=native -mtune=native
+CFLAGS = -Wall -Wextra -march=native -mtune=native -O3 -ffast-math -funroll-loops
 INCLUDES = $(shell pkg-config --cflags libgphoto2 libgphoto2_port libavformat libavcodec libavutil libswscale)
 LIBS = $(shell pkg-config --libs libgphoto2 libgphoto2_port libavformat libavcodec libavutil libswscale)
 

@@ -15,8 +15,10 @@
 
 #include <gphoto2/gphoto2-camera.h>
 #include <gphoto2/gphoto2-list.h>
+#include <gphoto2/gphoto2-version.h>
 #include <gphoto2/gphoto2-widget.h>
 #include <gphoto2/gphoto2.h>
+
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavformat/avio.h>
@@ -38,9 +40,9 @@ LogLevel log_level = LOG_LEVEL_INFO;
 bool colors_enabled = true;
 
 int file_sink = -1;
-int width = 1024;
-int height = 576;
-long desired_fps = 90;
+int width = 640;
+int height = 480;
+long target_fps = 30;
 bool no_convert = false;
 bool daemonized = false;
 char camera_model[32] = "";
@@ -55,6 +57,7 @@ char camera_model[32] = "";
 #define log_warn(format, ...) \
     if (log_level <= LOG_LEVEL_WARN) log("\e[0;105m", "WARN", format, ##__VA_ARGS__)
 #define log_fatal(format, ...) log("\e[0;101m", "FATL", format, ##__VA_ARGS__)
+#define COPYRIGHT_LINE "Webcamize " VERSION ", copyright (c) " AUTHOR " " YEAR ", licensed " LICENSE "\n"
 
 #if defined(OS_LINUX)
     #include <ctype.h>
@@ -153,7 +156,7 @@ int init_v4l2_device(void) {
     log_debug("Initializing V4L2 device: %s", v4l2_dev_path);
 
     // Open the V4L2 device
-    v4l2_fd = open(v4l2_dev_path, O_RDWR);
+    v4l2_fd = open(v4l2_dev_path, O_RDWR, O_NONBLOCK);
     if (v4l2_fd < 0) {
         log_warn("Failed to open V4L2 device %s: %s", v4l2_dev_path, strerror(errno));
         return -1;
@@ -222,7 +225,6 @@ struct SwsContext* sws_ctx = NULL;
 uint8_t* ffmpeg_output_buffer = NULL;
 int ffmpeg_output_buffer_size = 0;
 
-int init_ffmpeg_conversion(void);
 int convert_ffmpeg(const char* image_data, unsigned long image_data_size, uint8_t** output_data, int* output_data_size);
 
 volatile bool alive = true;
@@ -231,6 +233,7 @@ void sig_handler(int signo) {
 }
 int cli(int argc, char* argv[]);
 void print_usage(void);
+void print_status(void);
 
 int main(int argc, char* argv[]) {
     int ret = cli(argc, argv);
@@ -247,19 +250,19 @@ int main(int argc, char* argv[]) {
     if (use_v4l2loopback && (geteuid() != 0)) {
         log_warn("Webcamize requires sudo when using v4l2loopback!");
 
-        char readlink_buf[128];
-        ret = readlink("/proc/self/exe", readlink_buf, sizeof(readlink_buf));
+        char executable_path[128];
+        ret = readlink("/proc/self/exe", executable_path, sizeof(executable_path));
         if (ret == -1) {
             log_fatal("Failed to readlink own executable!");
             goto cleanup;
         }
 
         // Null-terminate the executable path
-        if (ret >= (int)sizeof(readlink_buf)) {
+        if (ret >= (int)sizeof(executable_path)) {
             log_fatal("Executable path too long!");
             goto cleanup;
         }
-        readlink_buf[ret] = '\0';
+        executable_path[ret] = '\0';
 
         pid_t pid = fork();
         if (pid == -1) {
@@ -277,7 +280,7 @@ int main(int argc, char* argv[]) {
 
             // Build new argument list
             new_argv[0] = "sudo";
-            new_argv[1] = readlink_buf;  // Full path to current executable
+            new_argv[1] = executable_path;  // Full path to current executable
 
             // Copy original arguments (skip argv[0] since we use full path)
             for (int i = 1; i < argc; i++) {
@@ -375,27 +378,11 @@ init_camera:
         goto cleanup;
     }
 
-    if (!no_convert) {
-        ret = init_ffmpeg_conversion();
-        if (ret < 0) {
-            log_fatal("Failed to initialize FFmpeg conversion");
-            goto cleanup;
-        }
-    }
-
 #if defined(OS_LINUX)
-    if (use_v4l2loopback) {
-        ret = init_v4l2_device();
-        if (ret < 0) {
-            log_fatal("Failed to initialize V4L2 device");
-            goto cleanup;
-        }
-
-        ret = setup_v4l2_format();
-        if (ret < 0) {
-            log_fatal("Failed to set V4L2 format");
-            goto cleanup;
-        }
+    ret = init_v4l2_device();
+    if (ret < 0) {
+        log_fatal("Failed to initialize V4L2 device");
+        goto cleanup;
     }
 
     if (*v4l2_dev_path) {
@@ -407,17 +394,34 @@ init_camera:
     log_info("Starting webcam `%s`!", camera_model);
 #endif
 
+    if (!no_convert) {
+        // Allocate frames
+        input_frame = av_frame_alloc();
+        if (!input_frame) {
+            log_fatal("Failed to allocate input frame");
+            goto cleanup;
+        }
+
+        output_frame = av_frame_alloc();
+        if (!output_frame) {
+            log_fatal("Failed to allocate output frame");
+            goto cleanup;
+        }
+    }
+
     // main loop
     const char* image_data = NULL;
     unsigned long image_data_size;
     uint8_t* output_data = NULL;
     int output_data_size = 0;
-    long desired_frame_time = CLOCKS_PER_SEC / desired_fps;
-    long frame_start;
+    struct timespec frame_start;
+    struct timespec frame_end;
+    struct timespec sleep_time;
     long frame_time;
-
+    long target_frame_time = 1000000000L / target_fps;
+    bool v4l2_need_format_set = true;
     while (alive) {
-        frame_start = clock();
+        clock_gettime(CLOCK_MONOTONIC, &frame_start);
 
         ret = gp_camera_capture_preview(gp2_camera, gp2_file, gp2_context);
         if (ret != GP_OK) {
@@ -455,6 +459,14 @@ init_camera:
 
 #if defined(OS_LINUX)
         if (v4l2_fd > 0) {
+            if (v4l2_need_format_set) {
+                ret = setup_v4l2_format();
+                if (ret < 0) {
+                    log_fatal("Failed to set V4L2 format");
+                    goto cleanup;
+                }
+                v4l2_need_format_set = false;
+            }
             ret = write_to_v4l2_device(output_data, output_data_size);
             if (ret < 0) {
                 log_fatal("Failed to write to V4L2 device");
@@ -464,9 +476,12 @@ init_camera:
 #endif
 
     loop_end: {
-        frame_time = clock() - frame_start;
-        if (frame_time < desired_frame_time) {
-            usleep((desired_frame_time - frame_time) * 1000000 / CLOCKS_PER_SEC);
+        clock_gettime(CLOCK_MONOTONIC, &frame_end);
+        frame_time = (frame_end.tv_sec - frame_start.tv_sec) * 1000000000L + (frame_end.tv_nsec - frame_start.tv_nsec);
+        if (frame_time < target_frame_time) {
+            sleep_time.tv_nsec = target_frame_time - frame_time;
+            log_debug("sleepin");
+            nanosleep(&sleep_time, NULL);
         }
     }
     }
@@ -492,9 +507,6 @@ cleanup:
     }
 #endif
 
-    // restart if we are daemonized
-    if (daemonized && alive) main(argc, argv);
-
     // ffmpeg
     log_debug("Cleaning up ffmpeg...");
     if (ffmpeg_output_buffer) av_free(ffmpeg_output_buffer);
@@ -518,22 +530,6 @@ cleanup:
     return ret < 0 ? 1 : 0;
 }
 
-int init_ffmpeg_conversion(void) {
-    // Allocate frames
-    input_frame = av_frame_alloc();
-    if (!input_frame) {
-        log_fatal("Failed to allocate input frame");
-        return -1;
-    }
-
-    output_frame = av_frame_alloc();
-    if (!output_frame) {
-        log_fatal("Failed to allocate output frame");
-        return -1;
-    }
-    return 0;
-}
-
 int convert_ffmpeg(const char* image_data,
                    unsigned long image_data_size,
                    uint8_t** output_data,
@@ -542,11 +538,8 @@ int convert_ffmpeg(const char* image_data,
 
     if (!decoder_ctx) {
         AVFormatContext* format_ctx = NULL;
-
-        // Create a memory buffer for FFmpeg to read from
         AVIOContext* avio_ctx = avio_alloc_context((unsigned char*)av_malloc(image_data_size), image_data_size, 0, NULL,
                                                    NULL, NULL, NULL);
-
         if (!avio_ctx) {
             log_warn("Failed to create AVIO context");
             return -1;
@@ -686,8 +679,8 @@ int convert_ffmpeg(const char* image_data,
         avio_context_free(&avio_ctx);
     }
 
-    // Allocate packet
-    packet_obj = av_packet_alloc();
+    if (!packet_obj) packet_obj = av_packet_alloc();
+
     packet_obj->data = (uint8_t*)image_data;
     packet_obj->size = image_data_size;
 
@@ -769,21 +762,17 @@ int cli(int argc, char* argv[]) {
         colors_enabled = false;
     }
 
-    static struct option long_options[] = {{"camera", required_argument, 0, 'c'},
-                                           {"file", optional_argument, 0, 'f'},
-                                           {"device", required_argument, 0, 'd'},
-                                           {"log-level", required_argument, 0, 'l'},
-                                           {"wait", no_argument, 0, 'w'},
-                                           {"no-convert", no_argument, 0, 'x'},
-                                           {"no-v4l2loopback", no_argument, 0, 'b'},
-                                           {"no-color", no_argument, 0, 0},
-                                           {"version", no_argument, 0, 'v'},
-                                           {"help", no_argument, 0, 'h'},
-                                           {0, 0, 0, 0}};
+    static struct option long_options[]
+        = {{"camera", required_argument, 0, 'c'}, {"file", optional_argument, 0, 'f'},
+           {"device", required_argument, 0, 'd'}, {"log-level", required_argument, 0, 'l'},
+           {"status", no_argument, 0, 's'},       {"wait", no_argument, 0, 'w'},
+           {"no-convert", no_argument, 0, 'x'},   {"no-v4l2loopback", no_argument, 0, 'b'},
+           {"no-color", no_argument, 0, 'o'},     {"version", no_argument, 0, 'v'},
+           {"help", no_argument, 0, 'h'},         {0, 0, 0, 0}};
     int option_index = 0;
     int c;
     // opterr = 0;
-    while ((c = getopt_long(argc, argv, "vxbc:f::wd:l:h", long_options, &option_index)) != -1) {
+    while ((c = getopt_long(argc, argv, "ovxbc:f::wd:l:sh", long_options, &option_index)) != -1) {
         switch (c) {
             case 'v':
                 log_info("Using webcamize %s", VERSION);
@@ -868,15 +857,16 @@ int cli(int argc, char* argv[]) {
                 }
                 break;
 
+            case 's':
+                print_status();
+                return -1;
+
             case 'h':
                 print_usage();
                 return -1;
 
-            case 0:
-                if (strcmp(long_options[option_index].name, "no-color") == 0) {
-                    colors_enabled = false;
-                    break;
-                }
+            case 'o':
+                colors_enabled = false;
                 break;
 
             case '?':
@@ -891,6 +881,20 @@ int cli(int argc, char* argv[]) {
     }
 
     return 0;
+}
+
+void print_status() {
+    printf("\n");
+    printf(COPYRIGHT_LINE);
+    printf("\n");
+    printf("Libraries:\n");
+    printf("   libgphoto2: %s\n", *(char**)gp_library_version(GP_VERSION_VERBOSE));
+    printf("    libavutil: %d.%d.%d\n", LIBAVUTIL_VERSION_MAJOR, LIBAVUTIL_VERSION_MINOR, LIBAVUTIL_VERSION_MICRO);
+    printf("   libavcodec: %d.%d.%d\n", LIBAVCODEC_VERSION_MAJOR, LIBAVCODEC_VERSION_MINOR, LIBAVCODEC_VERSION_MICRO);
+    printf("  libavformat: %d.%d.%d\n", LIBAVFORMAT_VERSION_MAJOR, LIBAVFORMAT_VERSION_MINOR,
+           LIBAVFORMAT_VERSION_MICRO);
+    printf("   libswscale: %d.%d.%d\n", LIBSWSCALE_VERSION_MAJOR, LIBSWSCALE_VERSION_MINOR, LIBSWSCALE_VERSION_MICRO);
+    printf("\n");
 }
 
 void print_usage() {
@@ -912,5 +916,5 @@ void print_usage() {
     printf("  -v,  --version                Print version info and quit\n");
     printf("  -H,  --help                   Show this help message\n");
     printf("\n");
-    printf("Webcamize %s, copyright (c) %s %s, licensed %s\n", VERSION, AUTHOR, YEAR, LICENSE);
+    printf(COPYRIGHT_LINE);
 }
