@@ -68,7 +68,7 @@ Webcamize is designed to be as easy to use as possible. Just plug in your camera
 $ webcamize
 ```
 
-In the vast majority of cases, that's all you'll need to do. You might be asked to enter your password for `modprobe` to enable the video device.
+In the vast majority of cases, that's all you'll need to do. You might be asked to enter your password to enable and configure the video device.
 
 [**View the list of supported cameras and devices**](./doc/supported.md).
 
@@ -91,22 +91,6 @@ Usage: webcamize [OPTIONS...]
   -H,  --help                   Show this help message
 ```
 
-#### Choosing a Different Camera
-
-If you have multiple gphoto2 compatible cameras that are connected and available, you can specify the camera you want to use with the `--camera` flag. You can list the available cameras by running the following command:
-
-```console
-$ gphoto2 --summary | grep Model:
-Model: Canon EOS 80D
-Model: Sony Alpha-A7r III
-```
-
-Once you know the name of the camera you want to use, just pass it to the `--camera` flag:
-
-```console
-$ webcamize --camera "Sony Alpha-A7r III"
-```
-
 <div align="center">
 <br>
 
@@ -119,7 +103,7 @@ $ webcamize --camera "Sony Alpha-A7r III"
 ### Package Managers
 
 > [!NOTE]
-> Webcamize is brand new and probably not available via your distribution's package manager (yet)—if you want to support the project by maintaining a package for webcamize, I'd be eternally grateful.
+> Webcamize is a small hobby project and probably not available via your distribution's package manager (yet)—if you want to support the project by maintaining a package for webcamize, I'd be eternally grateful.
 
 #### Arch Linux (AUR)
 
@@ -161,19 +145,13 @@ $ make
 
 **2. Install Webcamize**
 
-If `~/.local/bin/` is on your path, you can use the `install-local` target:
+If `~/.local/bin/` is on your path, you can use the `install-local` target—otherwise, use the normal `install` target:
 
 ```console
-$ make install-local
+$ echo $PATH | grep -q ~/.local/bin && make install-local || sudo make install
 ```
 
-Otherwise, use the `install` target:
-
-```console
-$ sudo make install
-```
-
-Webcamize can be uninstalled with the `uninstall-local` and `uninstall` targets respectively.
+Webcamize can be uninstalled with the `uninstall-local` and `uninstall` targets respectively, but if you installed it from source you should be able to safely `rm $(which webcamize)`.
 
 **That's all; you're ready to go!** 🎉🎉
 
