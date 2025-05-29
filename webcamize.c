@@ -42,7 +42,7 @@ bool colors_enabled = true;
 int file_sink = -1;
 int width = 640;
 int height = 480;
-long target_fps = 30;
+long target_fps = 60;
 bool no_convert = false;
 bool daemonized = false;
 char camera_model[32] = "";
@@ -60,7 +60,6 @@ char camera_model[32] = "";
 #define COPYRIGHT_LINE "Webcamize " VERSION ", copyright (c) " AUTHOR " " YEAR ", licensed " LICENSE "\n"
 
 #if defined(OS_LINUX)
-    #include <ctype.h>
     #include <linux/loop.h>
     #include <linux/module.h>
     #include <linux/videodev2.h>
@@ -91,7 +90,7 @@ struct v4l2_loopback_config {
 
 int v4l2_dev_num = -1;
 int v4l2_fd = -1;
-char v4l2_dev_path[20];
+char v4l2_dev_path[20] = "\0";
 int v4l2loopback_fd = -1;
 
 int init_v4l2_device(void) {
@@ -386,6 +385,7 @@ init_camera:
     }
 
     if (*v4l2_dev_path) {
+        bool v4l2_need_format_set = true;
         log_info("Starting webcam `%s` on %s!", camera_model, v4l2_dev_path);
     } else {
         log_info("Starting webcam `%s`!", camera_model);
@@ -414,12 +414,11 @@ init_camera:
     unsigned long image_data_size;
     uint8_t* output_data = NULL;
     int output_data_size = 0;
-    struct timespec frame_start;
-    struct timespec frame_end;
-    struct timespec sleep_time;
-    long frame_time;
+    struct timespec frame_start = {};
+    struct timespec frame_end = {};
+    struct timespec sleep_time = {};
+    long frame_time = 0;
     long target_frame_time = 1000000000L / target_fps;
-    bool v4l2_need_format_set = true;
     while (alive) {
         clock_gettime(CLOCK_MONOTONIC, &frame_start);
 
@@ -480,7 +479,6 @@ init_camera:
         frame_time = (frame_end.tv_sec - frame_start.tv_sec) * 1000000000L + (frame_end.tv_nsec - frame_start.tv_nsec);
         if (frame_time < target_frame_time) {
             sleep_time.tv_nsec = target_frame_time - frame_time;
-            log_debug("sleepin");
             nanosleep(&sleep_time, NULL);
         }
     }
@@ -762,17 +760,23 @@ int cli(int argc, char* argv[]) {
         colors_enabled = false;
     }
 
-    static struct option long_options[]
-        = {{"camera", required_argument, 0, 'c'}, {"file", optional_argument, 0, 'f'},
-           {"device", required_argument, 0, 'd'}, {"log-level", required_argument, 0, 'l'},
-           {"status", no_argument, 0, 's'},       {"wait", no_argument, 0, 'w'},
-           {"no-convert", no_argument, 0, 'x'},   {"no-v4l2loopback", no_argument, 0, 'b'},
-           {"no-color", no_argument, 0, 'o'},     {"version", no_argument, 0, 'v'},
-           {"help", no_argument, 0, 'h'},         {0, 0, 0, 0}};
+    static struct option long_options[] = {{"camera", required_argument, 0, 'c'},
+                                           {"fps", required_argument, 0, 'p'},
+                                           {"file", optional_argument, 0, 'f'},
+                                           {"device", required_argument, 0, 'd'},
+                                           {"log-level", required_argument, 0, 'l'},
+                                           {"status", no_argument, 0, 's'},
+                                           {"wait", no_argument, 0, 'w'},
+                                           {"no-convert", no_argument, 0, 'x'},
+                                           {"no-v4l2loopback", no_argument, 0, 'b'},
+                                           {"no-color", no_argument, 0, 'o'},
+                                           {"version", no_argument, 0, 'v'},
+                                           {"help", no_argument, 0, 'h'},
+                                           {0, 0, 0, 0}};
     int option_index = 0;
     int c;
     // opterr = 0;
-    while ((c = getopt_long(argc, argv, "ovxbc:f::wd:l:sh", long_options, &option_index)) != -1) {
+    while ((c = getopt_long(argc, argv, "ovxbc:f::wd:l:p:sh", long_options, &option_index)) != -1) {
         switch (c) {
             case 'v':
                 log_info("Using webcamize %s", VERSION);
@@ -787,12 +791,11 @@ int cli(int argc, char* argv[]) {
 
                 use_v4l2loopback = false;
 #else
-                log_warn("Option --no-v4l2loopback ignored as it does nothing on your operating system");
+                log_warn("Option --no-v4l2loopback (-b) ignored as it does nothing on your operating system");
 #endif
                 break;
 
             case 'w':
-                log_debug("Should wait!");
                 daemonized = true;
                 break;
 
@@ -800,40 +803,38 @@ int cli(int argc, char* argv[]) {
                 if (optarg) {
                     snprintf(camera_model, sizeof(camera_model), "%s", optarg);
                 } else {
-                    log_fatal("Missing argument for --camera");
+                    log_fatal("Missing argument for --camera (-c)");
                     return 1;
                 }
                 break;
 
-            case 'f':
-                if (optarg) {
-                    file_sink = open(optarg, O_RDWR, O_NONBLOCK);
-                    if (file_sink < 0) {
-                        log_fatal("Failed to open file sink `%s`: %s", optarg, strerror(errno));
+            case 'p':
+                if (optarg && !(!optarg || *optarg == '\0')) {
+                    target_fps = atoi(optarg);
+                    if (target_fps < 0) {
+                        log_fatal("Argument for --fps (-p) must be a non-negative integer, got %s", optarg);
                         return 1;
                     }
                 } else {
-                    file_sink = STDOUT_FILENO;
-                    log_info("Sink set to stdout because no argument was passed for option --file");
+                    log_fatal("Missing argument for --fps (-p)");
+                    return 1;
                 }
                 break;
 
             case 'd':
 #if defined(OS_LINUX)
                 if (optarg && !(!optarg || *optarg == '\0')) {
-                    for (int i = 0; optarg[i] != '\0'; i++) {
-                        if (!isdigit((unsigned char)optarg[i])) {
-                            log_fatal("Argument for --device must be a non-negative integer, got %s", optarg);
-                            return 1;
-                        };
-                    }
                     v4l2_dev_num = atoi(optarg);
+                    if (target_fps < 0) {
+                        log_fatal("Argument for --device (-d) must be a non-negative integer, got %s", optarg);
+                        return 1;
+                    }
                 } else {
-                    log_fatal("Missing argument for --device");
+                    log_fatal("Missing argument for --device (-d)");
                     return 1;
                 }
 #else
-                log_warn("Option --device ignored as it does nothing on your operating system");
+                log_warn("Option --device (-d) ignored as it does nothing on your operating system");
 #endif
                 break;
 
@@ -848,11 +849,11 @@ int cli(int argc, char* argv[]) {
                     } else if (strcasecmp(optarg, "FATAL") == 0) {
                         log_level = LOG_LEVEL_FATAL;
                     } else {
-                        log_fatal("Invalid log level `%s`", optarg);
+                        log_fatal("Invalid log level `%s`; must be one of DEBUG INFO WARN FATAL", optarg);
                         return 1;
                     }
                 } else {
-                    log_fatal("Missing argument for --log-level");
+                    log_fatal("Missing argument for --log-level (-l)");
                     return 1;
                 }
                 break;
@@ -875,7 +876,8 @@ int cli(int argc, char* argv[]) {
                 return 1;
 
             default:
-                log_fatal("Unsupported flag %c", c);
+                print_usage();
+                log_fatal("Unsupported option %c", c);
                 return 1;
         }
     }
@@ -906,6 +908,7 @@ void print_usage() {
     printf("  -f,  --file [PATH]            Output to a file; if no argument is passed, output to stdout\n");
     printf("  -w,  --wait                   Daemonize the process, preventing it from exiting\n");
     printf("  -x,  --no-convert             Don't convert from input format before writing\n");
+    printf("  -p,  --fps VALUE              Specify the maximum frames per second (default: 60)\n");
 #if defined(OS_LINUX)
     printf("  -d,  --device NUMBER          Specify the /dev/video_ device number to use\n");
     printf("  -b,  --no-v4l2loopback        Disable v4l2loopback module loading and configuration\n");
