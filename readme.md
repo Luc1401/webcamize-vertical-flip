@@ -105,16 +105,6 @@ Once you know the name of the camera you want to use, just pass it to the `--cam
 
 ```console
 $ webcamize --camera "Sony Alpha-A7r III"
-[INFO] Starting Sony Alpha-A7r III on /dev/video0
-```
-
-#### Custom Arguments for gphoto2/ffmpeg
-
-Unless you're really familiar with gphoto2/ffmpeg, it's inadvisable to pass custom arguments with the `--gphoto-args` and `--ffmpeg-args` flags; all these flags do is pass arguments into their respective command. As an example, here's the default flags for ffmpeg but edited to have a different thread count:
-
-```console
-$ webcamize --ffmpeg-args "-vcodec rawvideo -pix_fmt yuv420p -threads 2"
-webcamize: Starting camera on /dev/video0
 ```
 
 <div align="center">
