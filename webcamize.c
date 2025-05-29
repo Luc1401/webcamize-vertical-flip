@@ -73,6 +73,7 @@ char camera_model[32] = "";
     #include <libkmod.h>
 
 bool use_v4l2loopback = true;
+bool v4l2_need_format_set = false;
 
 struct v4l2_loopback_config {
     __s32 output_nr;
@@ -385,7 +386,7 @@ init_camera:
     }
 
     if (*v4l2_dev_path) {
-        bool v4l2_need_format_set = true;
+        v4l2_need_format_set = true;
         log_info("Starting webcam `%s` on %s!", camera_model, v4l2_dev_path);
     } else {
         log_info("Starting webcam `%s`!", camera_model);
