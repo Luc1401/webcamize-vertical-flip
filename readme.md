@@ -7,7 +7,6 @@
 <div align="center">
 <img src="./doc/assets/header.svg">
 
-
 <div id="user-content-toc" align="center">
   <ul>
   <summary><h1>webcamize</h1></summary>
@@ -23,10 +22,8 @@
 </samp>
 </strong> -->
 
-<img alt="Video badge: Video Lots" src="https://img.shields.io/badge/video-lots-orchid?style=flat-square">
-<img alt="License badge: License BSD-2-Clause" src="https://img.shields.io/github/license/cowtoolz/webcamize?style=flat-square">
 <img alt="Language badge: C 100%" src="https://img.shields.io/github/languages/top/cowtoolz/webcamize?style=flat-square">
-<img alt="Awesomeness badge: Awesome Extremely" src="https://img.shields.io/badge/awesome-extremely-limegreen?style=flat-square">
+<img alt="License badge: License BSD-2-Clause" src="https://img.shields.io/github/license/cowtoolz/webcamize?style=flat-square">
 
 <br>
 </div>
@@ -39,6 +36,7 @@ Webcamize allows you to use [basically any modern camera](./doc/supported.md) as
 <img src="./doc/assets/demo.gif" style="width:75%;">
 </div>
 <br>
+
 <div align="center" width="33%">
 
 There's literally only two steps...
@@ -48,11 +46,8 @@ There's literally only two steps...
 **2​. Run the `webcamize` command**
 
 Now your camera is a webcam! 🎉
+
 </div>
-
-It's really that easy! Webcamize is a tiny program that coordinates [gphoto2](http://gphoto.org/) and [ffmpeg](https://www.ffmpeg.org/) to capture video from any camera and output it to a live video device, ready to be used as a webcam.
-
-<!-- -->
 
 <div align="center">
 <br>
@@ -65,7 +60,7 @@ It's really that easy! Webcamize is a tiny program that coordinates [gphoto2](ht
 
 <br>
 
-Webcamize is designed to be as easy to use as possible. Just plug in your camera, then run it:
+Webcamize is designed to be as easy to use as possible. Just plug in your camera, turn it on, then run the `webcamize` command:
 
 ```console
 $ webcamize
@@ -131,7 +126,8 @@ webcamize: Starting camera on /dev/video0
 
 ### Package Managers
 
-Webcamize is brand new and probably not available via your distribution's package manager (yet)—if you want to support the project by maintaining a package for webcamize, I'd be eternally grateful!
+> [!NOTE]
+> Webcamize is brand new and probably not available via your distribution's package manager (yet)—if you want to support the project by maintaining a package for webcamize, I'd be eternally grateful.
 
 #### Arch Linux (AUR)
 
@@ -141,7 +137,7 @@ Webcamize is available from the [Arch User Repository](https://aur.archlinux.org
 $ yay -S webcamize
 ```
 
-<!-- #### NixOS (Nixpkgs)
+<!-- #### Nix & NixOS (Nixpkgs)
 
 Webcamize can be found in [Nixpkgs](https://aur.archlinux.org/packages/webcamize) as `webcamize`
 
@@ -149,17 +145,15 @@ Webcamize can be found in [Nixpkgs](https://aur.archlinux.org/packages/webcamize
 $ nix-env -iA webcamize
 ``` -->
 
-### Manual Installation
+### Building From Source
 
-Webcamize is super easy to install—it only has a few additional dependencies that you should make sure are installed before beginning:
+Webcamize has a few additional dependencies that you should make sure are installed before beginning:
 
 - [libgphoto2](http://gphoto.org/)
-- [ffmpeg libraries (libavutil, libavcodec, libavformat, libswscale)](https://www.ffmpeg.org/)
+- [ffmpeg (libavutil, libavcodec, libavformat, libswscale)](https://www.ffmpeg.org/)
 - [v4l2loopback](https://github.com/umlaeute/v4l2loopback)
 
 These should be available from your package manager.
-
-#### Installation Instructions
 
 **1. To get started, clone this repo somewhere**
 
@@ -167,11 +161,27 @@ These should be available from your package manager.
 $ git clone https://github.com/cowtoolz/webcamize && cd webcamize
 ```
 
-**2. Build and Install Webcamize**
+**2. Build Webcamize**
 
 ```console
-$ make install
+$ make
 ```
+
+**2. Install Webcamize**
+
+If `~/.local/bin/` is on your path, you can use the `install-local` target:
+
+```console
+$ make install-local
+```
+
+Otherwise, use the `install` target:
+
+```console
+$ sudo make install
+```
+
+Webcamize can be uninstalled with the `uninstall-local` and `uninstall` targets respectively.
 
 **That's all; you're ready to go!** 🎉🎉
 
@@ -218,8 +228,8 @@ Webcamize has only a few contribution rules to keep the project's growing at a s
 Webcamize does little more than orchestrate other open source software; the software it depends on is where the real magic happens. With that being said, a big thanks goes out from me to:
 
 - [Michael Niedermayer](https://github.com/michaelni) and other contributors to [ffmpeg](https://github.com/FFmpeg/FFmpeg/graphs/contributors) for their incredible work on the absolute behemoth that is ffmpeg.
-- [Marcus Meissner](https://github.com/msmeissn),  [Hans Niedermann](https://github.com/ndim), and the other contributors to [libgphoto2](https://github.com/gphoto/libgphoto2). This project is underrated given the insane quality and scope.
-- [You](https://en.wikipedia.org/wiki/You_(Time_Person_of_the_Year)), the reader! Thank you for using, supporting, and contributing to webcamize; without you, this project would not be possible.
+- [Marcus Meissner](https://github.com/msmeissn), [Hans Niedermann](https://github.com/ndim), and the other contributors to [libgphoto2](https://github.com/gphoto/libgphoto2). This project is underrated given the insane quality and scope.
+- [You](<https://en.wikipedia.org/wiki/You_(Time_Person_of_the_Year)>), the reader! Thank you for using, supporting, and contributing to webcamize; without you, this project would not be possible.
 
 <br>
 

@@ -8,11 +8,11 @@ ifneq ($(findstring Linux,$(UNAME_S)),)
     CFLAGS += -DUSE_LIBKMOD
 endif
 
-# Installation directories
 PREFIX ?= /usr/local
 BINDIR = bin
 DESTDIR ?=
 INSTALL_BINDIR = $(DESTDIR)$(PREFIX)/bin
+LOCAL_BINDIR = $(HOME)/.local/bin
 
 all: $(BINDIR)/webcamize
 
@@ -26,10 +26,17 @@ install: $(BINDIR)/webcamize
 	install -d $(INSTALL_BINDIR)
 	install -m 755 $(BINDIR)/webcamize $(INSTALL_BINDIR)/webcamize
 
+install-local: $(BINDIR)/webcamize
+	install -d $(LOCAL_BINDIR)
+	install -m 755 $(BINDIR)/webcamize $(LOCAL_BINDIR)/webcamize
+
 uninstall:
 	rm -f $(INSTALL_BINDIR)/webcamize
+
+uninstall-local:
+	rm -f $(LOCAL_BINDIR)/webcamize
 
 clean:
 	rm -rf $(BINDIR)
 
-.PHONY: all clean install uninstall
+.PHONY: all clean install uninstall install-local uninstall-local
