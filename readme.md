@@ -137,7 +137,15 @@ These should be available from your package manager.
 $ git clone https://github.com/cowtoolz/webcamize && cd webcamize
 ```
 
+You don't have to, but you should check out a tag. To checkout the latest tag automatically:
+
+```console
+$ git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
+```
+
 **2. Build Webcamize**
+
+Webcamize doesn't require any configuration; you can just run `make`.
 
 ```console
 $ make
