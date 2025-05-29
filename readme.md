@@ -21,11 +21,13 @@
 
 </samp>
 </strong> -->
-
+<div>
 <img alt="Language badge: C 100%" src="https://img.shields.io/github/languages/top/cowtoolz/webcamize?style=flat-square">
 <img alt="License badge: License BSD-2-Clause" src="https://img.shields.io/github/license/cowtoolz/webcamize?style=flat-square">
-
 <br>
+<br>
+</div>
+
 </div>
 
 Webcamize allows you to use [basically any modern camera](./doc/supported.md) as a webcam on Linux—your DSLR, mirrorless, camcorder, point-and-shoot, and even some smartphones/tablets. It also gets many webcams that don't work out of the box on Linux up and running in a flash.
