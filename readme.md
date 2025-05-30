@@ -125,9 +125,11 @@ $ nix-env -iA webcamize
 
 Webcamize has a few additional dependencies that you should make sure are installed before beginning:
 
-- [libgphoto2](http://gphoto.org/)
-- [ffmpeg (libavutil, libavcodec, libavformat, libswscale)](https://www.ffmpeg.org/)
-- [v4l2loopback](https://github.com/umlaeute/v4l2loopback)
+- [libgphoto2](https://repology.org/project/libgphoto2/versions)
+- [ffmpeg (libavutil, libavcodec, libavformat, libswscale)](https://repology.org/project/ffmpeg/versions)
+- [v4l2loopback DKMS](https://repology.org/projects/?search=v4l2loopback)
+- [libkmod](https://repology.org/project/kmod/versions)
+- Linux headers
 
 These should be available from your package manager.
 
