@@ -105,6 +105,12 @@ Usage: webcamize [OPTIONS...]
 > [!NOTE]
 > Webcamize is a small hobby project and probably not available via your distribution's package manager (yet)—if you want to support the project by maintaining a package for webcamize, I'd be eternally grateful.
 
+<div align="right">
+  
+[![Packaging status](https://repology.org/badge/vertical-allrepos/webcamize.svg)](https://repology.org/project/webcamize/versions)
+
+</div>
+
 #### Arch Linux (AUR)
 
 Webcamize is available from the [Arch User Repository](https://aur.archlinux.org/packages/webcamize) as `webcamize`
