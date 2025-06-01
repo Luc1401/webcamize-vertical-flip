@@ -193,13 +193,6 @@ This project follows the following philosophy:
 
 If you find yourself stumped, find a bug, have a bad time using webcamize, or have a suggestion that could make webcamize better, please open an issue in the [issue tracker](https://github.com/cowtoolz/webcamize/issues/)—noobs welcome!
 
-### Contributing
-
-Webcamize has only a few contribution rules to keep the project's growing at a sustainable rate:
-
-- Please squash your commits before submitting a pull request.
-- Pull requests should be split into multiple pull requests where possible.
-
 <div align="center">
 <br>
 
