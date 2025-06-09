@@ -295,7 +295,6 @@ int main(int argc, char* argv[]) {
             log_fatal("Failed to execute sudo!");
             free(new_argv);
             exit(1);
-
         } else {
             // Parent process: wait for child to complete
             int status;
@@ -349,6 +348,79 @@ int main(int argc, char* argv[]) {
             snprintf(camera_model, sizeof(camera_model), "%s", first_camera);
         } else {
             log_debug("Found requested camera: %s", camera_model);
+            int gp2_camera_index = ret;
+
+            static CameraAbilitiesList* gp2_abilities_list = NULL;
+            ret = gp_abilities_list_new(&gp2_abilities_list);
+            if (ret < GP_OK) {
+                log_fatal("Failed to initialize abilities list: %s", gp_result_as_string(ret));
+                goto cleanup;
+            }
+            ret = gp_abilities_list_load(gp2_abilities_list, gp2_context);
+            if (ret < GP_OK) {
+                log_fatal("Failed to populate abilities list: %s", gp_result_as_string(ret));
+                goto cleanup;
+            }
+
+            CameraAbilities gp2_abilities;
+            ret = gp_abilities_list_lookup_model(gp2_abilities_list, camera_model);
+            if (ret < GP_OK) {
+                log_fatal("Lookup failed for specified model: %s", gp_result_as_string(ret));
+                goto cleanup;
+            }
+            ret = gp_abilities_list_get_abilities(gp2_abilities_list, ret, &gp2_abilities);
+            if (ret < GP_OK) {
+                log_fatal("Failed to get abilities for specified model: %s", gp_result_as_string(ret));
+                goto cleanup;
+            }
+            ret = gp_camera_set_abilities(gp2_camera, gp2_abilities);
+            if (ret < GP_OK) {
+                log_fatal("Failed to set abilities for specified model: %s", gp_result_as_string(ret));
+                goto cleanup;
+            }
+
+            static GPPortInfoList* gp2_port_info_list = NULL;
+            ret = gp_port_info_list_new(&gp2_port_info_list);
+            if (ret < GP_OK) {
+                log_fatal("Failed to initialize port info list: %s", gp_result_as_string(ret));
+                goto cleanup;
+            }
+            ret = gp_port_info_list_load(gp2_port_info_list);
+            if (ret < GP_OK) {
+                log_fatal("Failed to load port info list: %s", gp_result_as_string(ret));
+                goto cleanup;
+            }
+            ret = gp_port_info_list_count(gp2_port_info_list);
+            if (ret < GP_OK) {
+                log_fatal("Failed to populate count to port info list: %s", gp_result_as_string(ret));
+                goto cleanup;
+            }
+            const char* gp2_port_path;
+            ret = gp_list_get_value(gp2_camlist, gp2_camera_index, &gp2_port_path);
+            if (ret < GP_OK) {
+                log_fatal("Failed to get port path for specified camera: %s", gp_result_as_string(ret));
+                goto cleanup;
+            }
+            ret = gp_port_info_list_lookup_path(gp2_port_info_list, gp2_port_path);
+            if (ret < GP_OK) {
+                log_fatal("Lookup failed for the port of the specified camera within the port info list: %s",
+                          gp_result_as_string(ret));
+                goto cleanup;
+            }
+            int gp2_port_info_index = ret;
+            GPPortInfo gp2_port_info;
+            ret = gp_port_info_list_get_info(gp2_port_info_list, gp2_port_info_index, &gp2_port_info);
+            if (ret < GP_OK) {
+                log_fatal("Failed to get info for port from port info list: %s", gp_result_as_string(ret));
+                goto cleanup;
+            }
+
+            ret = gp_camera_set_port_info(gp2_camera, gp2_port_info);
+            if (ret < GP_OK) {
+                log_fatal("Failed to set the port info of the camera to the specified port info: %s",
+                          gp_result_as_string(ret));
+                goto cleanup;
+            }
         }
     } else {
         // No camera specified, use first detected
