@@ -44,7 +44,6 @@ int width = 640;
 int height = 480;
 long target_fps = 60;
 bool no_convert = false;
-bool daemonized = false;
 char camera_model[32] = "";
 
 #define log(color, name, format, ...)                                                        \
@@ -431,17 +430,10 @@ int main(int argc, char* argv[]) {
 
     log_debug("Using camera: %s", camera_model);
 
-init_camera:
     ret = gp_camera_init(gp2_camera, gp2_context);
     if (ret < GP_OK) {
-        if (daemonized) {
-            // 3s polling rate
-            usleep(3000000);
-            goto init_camera;
-        } else {
-            log_fatal("Failed to autodetect camera: %s", gp_result_as_string(ret));
-            goto cleanup;
-        }
+        log_fatal("Failed to autodetect camera: %s", gp_result_as_string(ret));
+        goto cleanup;
     }
 
     ret = gp_file_new(&gp2_file);
@@ -868,10 +860,6 @@ int cli(int argc, char* argv[]) {
 #endif
                 break;
 
-            case 'w':
-                daemonized = true;
-                break;
-
             case 'c':
                 if (optarg) {
                     snprintf(camera_model, sizeof(camera_model), "%s", optarg);
@@ -992,7 +980,6 @@ void print_usage() {
     printf("  -s,  --status                 Print a status report for webcamize and quit\n");
     printf("  -c,  --camera NAME            Specify a camera to use by its name; autodetects by default\n");
     printf("  -f,  --file [PATH]            Output to a file; if no argument is passed, output to stdout\n");
-    printf("  -w,  --wait                   Daemonize the process, preventing it from exiting\n");
     printf("  -x,  --no-convert             Don't convert from input format before writing\n");
     printf("  -p,  --fps VALUE              Specify the maximum frames per second (default: 60)\n");
 #if defined(OS_LINUX)
