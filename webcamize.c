@@ -809,6 +809,19 @@ int cli(int argc, char* argv[]) {
                 }
                 break;
 
+            case 'f':
+                if (optarg) {
+                    file_sink = open(optarg, O_RDWR, O_NONBLOCK);
+                    if (file_sink < 0) {
+                        log_fatal("Failed to open file sink `%s`: %s", optarg, strerror(errno));
+                        return 1;
+                    }
+                } else {
+                    file_sink = STDOUT_FILENO;
+                    log_info("Sink set to stdout because no argument was passed for option --file");
+                }
+                break;
+
             case 'p':
                 if (optarg && !(!optarg || *optarg == '\0')) {
                     target_fps = atoi(optarg);
