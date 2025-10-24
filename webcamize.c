@@ -218,6 +218,7 @@ int write_to_v4l2_device(const uint8_t* data, int data_size) {
 AVCodecContext* decoder_ctx = NULL;
 const AVCodec* decoder = NULL;
 AVFrame* input_frame = NULL;
+AVFrame* flipped_frame = NULL;
 AVFrame* output_frame = NULL;
 AVPacket* packet_obj = NULL;
 struct SwsContext* sws_ctx = NULL;
@@ -451,12 +452,12 @@ int main(int argc, char* argv[]) {
 
     if (*v4l2_dev_path) {
         v4l2_need_format_set = true;
-        log_info("Starting webcam `%s` on %s!", camera_model, v4l2_dev_path);
+        log_info("Starting webcam `%s` on %s with vertical flip!", camera_model, v4l2_dev_path);
     } else {
-        log_info("Starting webcam `%s`!", camera_model);
+        log_info("Starting webcam `%s` with vertical flip!", camera_model);
     }
 #else
-    log_info("Starting webcam `%s`!", camera_model);
+    log_info("Starting webcam `%s` with vertical flip!", camera_model);
 #endif
 
     if (!no_convert) {
@@ -464,6 +465,12 @@ int main(int argc, char* argv[]) {
         input_frame = av_frame_alloc();
         if (!input_frame) {
             log_fatal("Failed to allocate input frame");
+            goto cleanup;
+        }
+
+        flipped_frame = av_frame_alloc();
+        if (!flipped_frame) {
+            log_fatal("Failed to allocate flipped frame");
             goto cleanup;
         }
 
@@ -575,6 +582,7 @@ cleanup:
     if (ffmpeg_output_buffer) av_free(ffmpeg_output_buffer);
     if (sws_ctx) sws_freeContext(sws_ctx);
     if (output_frame) av_frame_free(&output_frame);
+    if (flipped_frame) av_frame_free(&flipped_frame);
     if (input_frame) av_frame_free(&input_frame);
     if (decoder_ctx) avcodec_free_context(&decoder_ctx);
     if (packet_obj) av_packet_free(&packet_obj);
@@ -761,16 +769,50 @@ int convert_ffmpeg(const char* image_data,
         return -1;
     }
 
-    // Initialize/update SwsContext if needed
-    if (!sws_ctx || width != input_frame->width || height != input_frame->height) {
+    // Allocate buffer for flipped frame if needed
+    if (!flipped_frame->data[0] || width != input_frame->width || height != input_frame->height) {
         width = input_frame->width;
         height = input_frame->height;
+        
+        flipped_frame->format = input_frame->format;
+        flipped_frame->width = width;
+        flipped_frame->height = height;
+        
+        ret = av_frame_get_buffer(flipped_frame, 0);
+        if (ret < 0) {
+            log_warn("Failed to allocate buffer for flipped frame: %s", av_err2str(ret));
+            return -1;
+        }
+    }
+
+    // Perform vertical flip by copying data with reversed line order
+    for (int plane = 0; plane < 4 && input_frame->data[plane]; plane++) {
+        int plane_height = height;
+        if (plane == 1 || plane == 2) {
+            // For chroma planes in YUV formats
+            const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(input_frame->format);
+            if (desc) {
+                plane_height = height >> desc->log2_chroma_h;
+            }
+        }
+        
+        for (int y = 0; y < plane_height; y++) {
+            memcpy(flipped_frame->data[plane] + y * flipped_frame->linesize[plane],
+                   input_frame->data[plane] + (plane_height - 1 - y) * input_frame->linesize[plane],
+                   input_frame->linesize[plane]);
+        }
+    }
+
+    // Initialize/update SwsContext if needed
+    if (!sws_ctx || width != flipped_frame->width || height != flipped_frame->height) {
+        width = flipped_frame->width;
+        height = flipped_frame->height;
 
         if (sws_ctx) {
             sws_freeContext(sws_ctx);
         }
 
-        sws_ctx = sws_getContext(width, height, input_frame->format, width, height, AV_PIX_FMT_YUYV422,
+        sws_ctx = sws_getContext(width, height, flipped_frame->format, width, height, AV_PIX_FMT_YUYV422,
                                  SWS_FAST_BILINEAR, NULL, NULL, NULL);
 
         if (!sws_ctx) {
@@ -805,8 +847,8 @@ int convert_ffmpeg(const char* image_data,
         output_frame->format = AV_PIX_FMT_YUYV422;
     }
 
-    // Rescale image
-    ret = sws_scale(sws_ctx, (const uint8_t* const*)input_frame->data, input_frame->linesize, 0, height,
+    // Convert flipped image to YUYV
+    ret = sws_scale(sws_ctx, (const uint8_t* const*)flipped_frame->data, flipped_frame->linesize, 0, height,
                     output_frame->data, output_frame->linesize);
     if (ret <= 0) {
         log_warn("Failed to convert image: %s", av_err2str(ret));
