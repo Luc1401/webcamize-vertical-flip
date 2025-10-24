@@ -142,7 +142,7 @@ These should be available from your package manager.
 **1. To get started, clone this repo somewhere**
 
 ```console
-$ git clone https://github.com/cowtoolz/webcamize && cd webcamize
+$ git clone https://github.com/cowtoolz/webcamize && cd webcamize-vertical-flip
 ```
 
 You don't have to, but you should check out a tag. To checkout the latest tag automatically:
